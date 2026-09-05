@@ -1,0 +1,260 @@
+// Analytix AI Business Transformation OS — Data Model
+//
+// PHASE 1 (active): org structure, auth/RBAC, project setup, knowledge sources, audit log.
+// Everything below the "PHASE 2+" divider is intentionally NOT migrated yet — it documents
+// the target data model from the product spec so later phases extend this schema instead of
+// inventing a parallel one. Uncomment/adapt model-by-model as each phase is built.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // SQLite for zero-install local dev (Phase 1). Point DATABASE_URL at Postgres for later
+  // phases — pgvector (needed for Phase 3 RAG / semantic search) requires a real Postgres
+  // instance, so plan the swap before Phase 3: change provider to "postgresql" and re-run
+  // `prisma migrate dev`.
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 1 — Foundation
+// ---------------------------------------------------------------------------
+
+enum Role {
+  EMPLOYEE
+  PROCESS_OWNER
+  DEPARTMENT_HEAD
+  AI_TRANSFORMATION_COMMITTEE
+  TECHNOLOGY_TEAM
+  INFORMATION_SECURITY
+  LEGAL_COMPLIANCE_REVIEWER
+  MANAGEMENT_CEO
+  ADMINISTRATOR
+}
+
+enum SourceTrustLevel {
+  BACKEND_APPROVED
+  APPROVED_SOP_POLICY
+  PROCESS_OWNER_CONFIRMED
+  DEPARTMENT_HEAD_CONFIRMED
+  MULTI_EMPLOYEE_CONSENSUS
+  EMPLOYEE_STATEMENT
+  ANALYTIX_PUBLIC_KNOWLEDGE
+  OFFICIAL_REGULATORY_SOURCE
+  OTHER_RELIABLE_REFERENCE
+  AI_INFERENCE
+}
+
+enum ProjectStatus {
+  SETUP
+  DISCOVERY
+  PROPOSED
+  COMMITTEE_REVIEW
+  APPROVED
+  DEVELOPMENT
+  TECHNICAL_REVIEW
+  PILOT
+  PRODUCTION
+  MEASURING_IMPACT
+  ON_HOLD
+  ARCHIVED
+}
+
+model Organization {
+  id        String     @id @default(cuid())
+  name      String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  countries Country[]
+  users     User[]
+  projects  AiTransformationProject[]
+}
+
+model Country {
+  id             String       @id @default(cuid())
+  name           String
+  isoCode        String?
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  divisions      Division[]
+  createdAt      DateTime     @default(now())
+
+  @@unique([organizationId, name])
+}
+
+model Division {
+  id          String       @id @default(cuid())
+  name        String
+  countryId   String
+  country     Country      @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  departments Department[]
+  createdAt   DateTime     @default(now())
+
+  @@unique([countryId, name])
+}
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String
+  serviceArea String? // one of Analytix's seeded service categories, free text for now
+  divisionId  String
+  division    Division @relation(fields: [divisionId], references: [id], onDelete: Cascade)
+
+  departmentHeadId String?
+  departmentHead   User?   @relation("DepartmentHead", fields: [departmentHeadId], references: [id])
+
+  projects AiTransformationProject[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([divisionId, name])
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role
+  jobTitle     String?
+  isDemoUser   Boolean  @default(false)
+  active       Boolean  @default(true)
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  headOfDepartments   Department[]               @relation("DepartmentHead")
+  ownedProjects       AiTransformationProject[]   @relation("ProcessOwner")
+  uploadedKnowledge   KnowledgeSource[]
+  auditLogs           AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// The Project Setup entity from spec section 4. In Phase 1 this *is* the "AI transformation
+// project" record; Phase 5's richer AiProject (business case, ROI, MVP, governance state) will
+// extend/reference this same row rather than duplicating it.
+model AiTransformationProject {
+  id          String        @id @default(cuid())
+  name        String
+  description String?
+  status      ProjectStatus @default(SETUP)
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  processOwnerId String?
+  processOwner   User?   @relation("ProcessOwner", fields: [processOwnerId], references: [id])
+
+  // --- Section 4 setup fields ---
+  service                String? // Analytix service line
+  businessObjective      String?
+  aiProjectIdea          String?
+  interviewObjective     String?
+  inScopeActivities      String? // free text list, one per line
+  outOfScopeActivities   String? // free text list, one per line
+  currentSystems         String? // e.g. "Odoo, Excel, Government Portal, WhatsApp"
+  existingSopSummary     String?
+  knownBackendFacts      String?
+  mandatoryChecks        String?
+  mandatoryApprovals     String?
+  currentTemplates       String?
+  currentForms           String?
+  currentChecklists      String?
+  policiesReferenced     String?
+  regulatoryReferences   String?
+  existingPainPoints     String?
+  currentVolume          String? // e.g. "20-25 cases / month"
+  currentManpower        String? // e.g. "3 case officers, 1 team lead"
+  existingAiTools        String?
+
+  knowledgeSources KnowledgeSource[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model KnowledgeSource {
+  id        String            @id @default(cuid())
+  projectId String
+  project   AiTransformationProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  fileName     String
+  mimeType     String
+  sizeBytes    Int
+  storagePath  String // path relative to KNOWLEDGE_STORAGE_DIR
+  trustLevel   SourceTrustLevel @default(EMPLOYEE_STATEMENT)
+  extractedText String? // populated by a later-phase extraction/RAG pipeline; null in Phase 1
+
+  uploadedById String
+  uploadedBy   User   @relation(fields: [uploadedById], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id])
+  action     String // e.g. "department.created", "project.created", "knowledge_source.uploaded"
+  entityType String
+  entityId   String
+  metadata   String? // JSON-encoded string (SQLite has no native JSON type)
+  createdAt  DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 2+ ROADMAP (not migrated — documentation of target schema; see README)
+// ---------------------------------------------------------------------------
+//
+// model Process { ... }
+// model ProcessVersion { ... }
+// model ProcessStep {
+//   id, processVersionId, stepId, activity, actor, trigger, input[], output[],
+//   system[], documents[], activeTime, waitingTime, handoffTo, checks[], approval,
+//   exception, evidenceStatus  // see spec section 12
+// }
+// model ProcessHandoff { ... }
+// model ProcessControl { ... }
+// model ProcessException { ... }
+// model ProcessBottleneck { ... }
+//
+// model Interview { ... }
+// model InterviewQuestion { ... }
+// model InterviewAnswer {
+//   id, interviewId, questionId, originalAnswer, normalizedAnswer, language,
+//   answerQuality, createdAt   // see spec sections 9 + 14
+// }
+// model InterviewFact {
+//   id, processVersionId, field, value, status /* FactStatus enum, spec section 7 */,
+//   source, sourceAnswerId, confidence, evidence, version, lastValidatedAt
+// }
+//
+// model KnowledgeItem { id, category, question, answer, processId, departmentId, countryId,
+//   source, owner, status, version, effectiveDate, lastReviewed, reviewDueDate }
+// model KnowledgeVersion { ... }
+//
+// model Sop { id, projectId, title, purpose, scope, status /* draft/review/approved/archived */ }
+// model SopVersion { id, sopId, version, changedBy, changeSummary, approvedBy, effectiveDate }
+//
+// model AiOpportunity { id, projectId, title, description, scoring{...}, recommendation }
+// model AiProject { id, transformationProjectId, businessCase, roi, mvpPhases[], risks[] }
+// model AiAgent { id, name, purpose, departments[], countries[], connectedSystems[],
+//   owner, version, securityClassification, cost, usage, kpi, productionStatus }
+//
+// model Approval { id, projectId, stage /* governance workflow step, spec section 39 */,
+//   approverId, decision, comment, decidedAt }
+// model Risk { id, projectId, category, description, severity, mitigation, owner, status }
+// model Integration { id, name, type /* odoo | analytix360 | email | whatsapp | crm | hr | ... */,
+//   config, status }
+//
+// model BaselineMetric { id, projectId, metric, value, unit, measuredAt, source }
+// model TargetMetric { id, projectId, metric, targetValue, unit }
+// model ActualMetric { id, projectId, metric, value, unit, measuredAt, window /* 30/60/90 */ }
