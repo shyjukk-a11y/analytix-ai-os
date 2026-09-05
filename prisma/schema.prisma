@@ -97,6 +97,7 @@ model User {
   inviteLinksAsEmployee InterviewInviteLink[]        @relation("InviteLinkEmployee")
   inviteLinksCreated    InterviewInviteLink[]        @relation("InviteLinkCreator")
   sopsGenerated         Sop[]
+  aiProjectsGenerated   AiProject[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -204,6 +205,7 @@ model Process {
   interviews  Interview[]
   sop            Sop?
   knowledgeItems KnowledgeItem[]
+  aiOpportunities AiOpportunity[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -329,6 +331,52 @@ model KnowledgeItem {
 }
 
 // ---------------------------------------------------------------------------
+// PHASE 4 — AI Opportunities & AI Projects
+// ---------------------------------------------------------------------------
+//
+// AiOpportunity rows are populated automatically when an interview completes, one per confirmed
+// (CONFIRMED or PARTLY) AI observation the engine raised — see syncAiOpportunitiesOnCompletion in
+// src/lib/actions/interviews.ts. impact/effort are deterministic LOW|MEDIUM|HIGH bands derived
+// from captured facts (src/lib/ai-opportunity-rules.ts), never a fabricated numeric score.
+// AiProject is the deliberate synthesis step — a reviewer generates a deterministic business-case
+// markdown document from one opportunity (src/lib/ai-project-template.ts), mirroring the SOP
+// Library's generate/regenerate/publish pattern from Phase 3.
+
+model AiOpportunity {
+  id                String   @id @default(cuid())
+  processId         String
+  process           Process  @relation(fields: [processId], references: [id], onDelete: Cascade)
+  key               String // duplicateEntry | docDependency | knowledgeRisk | manualFollowUp | authorityCheck | bottleneckGeneral
+  category          String // OBSERVATION | BOTTLENECK | KNOWLEDGE_RISK (mirrors InterviewObservation.category)
+  title             String
+  description       String // the confirmed AI observation's own text — never fabricated
+  recommendation    String // deterministic suggested approach (see OPPORTUNITY_CONTENT)
+  impact            String // LOW | MEDIUM | HIGH
+  effort            String // LOW | MEDIUM | HIGH
+  status            String   @default("IDENTIFIED") // IDENTIFIED | DISMISSED
+  sourceInterviewId String // not a relation: the opportunity should outlive the interview it came from
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  aiProject AiProject?
+
+  @@unique([processId, key])
+}
+
+model AiProject {
+  id            String        @id @default(cuid())
+  opportunityId String        @unique
+  opportunity   AiOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  title         String
+  contentMd     String // deterministic markdown business case (src/lib/ai-project-template.ts)
+  status        String        @default("DRAFT") // DRAFT | PROPOSED
+  generatedById String
+  generatedBy   User          @relation(fields: [generatedById], references: [id])
+  generatedAt   DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+// ---------------------------------------------------------------------------
 // PHASE 2+ ROADMAP (not migrated — documentation of target schema; see README)
 // ---------------------------------------------------------------------------
 //
@@ -351,8 +399,8 @@ model KnowledgeItem {
 // model KnowledgeVersion { ... }
 // model SopVersion { id, sopId, version, changedBy, changeSummary, approvedBy, effectiveDate }
 //
-// model AiOpportunity { id, projectId, title, description, scoring{...}, recommendation }
-// model AiProject { id, transformationProjectId, businessCase, roi, mvpPhases[], risks[] }
+// AiOpportunity / AiProject — implemented in Phase 4 above, in a pragmatic shape (no formal
+// scoring model, ROI figures, or MVP phasing yet — those remain future work described here).
 // model AiAgent { id, name, purpose, departments[], countries[], connectedSystems[],
 //   owner, version, securityClassification, cost, usage, kpi, productionStatus }
 //

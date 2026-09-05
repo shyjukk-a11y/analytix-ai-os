@@ -7,6 +7,8 @@ import { prisma } from '@/lib/prisma';
 import { assertCan, can, ForbiddenError } from '@/lib/rbac';
 import { Role } from '@/lib/enums';
 import { writeAuditLog } from '@/lib/audit';
+import { extractProcessFacts } from '@/lib/process-facts';
+import { OPPORTUNITY_CONTENT, deriveImpact, deriveEffort } from '@/lib/ai-opportunity-rules';
 import {
   beginInterview,
   submitAnswer as engineSubmitAnswer,
@@ -193,6 +195,40 @@ async function syncKnowledgeItemsOnCompletion(processId: string, interviewId: st
   }
 }
 
+/**
+ * On interview completion, create an AiOpportunity row for every CONFIRMED or PARTLY-confirmed AI
+ * observation the engine raised, using the same deterministic content/scoring rules as the AI
+ * Opportunities module (src/lib/ai-opportunity-rules.ts). Deduped per process by key via the
+ * model's compound unique index — a reviewer's dismissal of an existing opportunity is preserved
+ * (the upsert's `update` is a no-op), it is never silently reset back to IDENTIFIED.
+ */
+async function syncAiOpportunitiesOnCompletion(processId: string, interviewId: string, state: InterviewState) {
+  const facts = extractProcessFacts(state);
+  const impact = deriveImpact(facts);
+  const effort = deriveEffort(facts);
+
+  for (const obs of state.aiObservations) {
+    if (obs.status !== 'confirmed' && obs.status !== 'partly') continue;
+    const content = OPPORTUNITY_CONTENT[obs.key];
+    if (!content) continue;
+    await prisma.aiOpportunity.upsert({
+      where: { processId_key: { processId, key: obs.key } },
+      update: {},
+      create: {
+        processId,
+        key: obs.key,
+        category: OBSERVATION_CATEGORY[obs.key] ?? 'OBSERVATION',
+        title: content.title,
+        description: obs.text,
+        recommendation: content.recommendation,
+        impact,
+        effort,
+        sourceInterviewId: interviewId
+      }
+    });
+  }
+}
+
 async function persistTurn(params: { interviewId: string; processId: string; state: InterviewState; action: EngineAction }) {
   const { interviewId, processId, state, action } = params;
   await recordActionMessage(interviewId, action);
@@ -232,6 +268,7 @@ async function performTurn(
 
   if (state.completed) {
     await syncKnowledgeItemsOnCompletion(interview.processId, interviewId, state);
+    await syncAiOpportunitiesOnCompletion(interview.processId, interviewId, state);
 
     await writeAuditLog({
       actorId: actor?.userId ?? null,
@@ -244,6 +281,7 @@ async function performTurn(
     revalidatePath('/process-discovery');
     revalidatePath('/digital-twin');
     revalidatePath('/knowledge-base');
+    revalidatePath('/ai-opportunities');
   }
 
   return { action, state };
