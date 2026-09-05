@@ -173,6 +173,26 @@ async function syncProcess(processId: string, state: InterviewState) {
   }
 }
 
+/**
+ * On interview completion, upsert each distinct knowledge/template statement the employee
+ * mentioned as a KnowledgeItem row, so Phase 3's Knowledge Base module has it immediately without
+ * re-parsing stateJson. Deduped per process by exact text via the model's compound unique index,
+ * so a second employee describing the same process doesn't create noisy duplicates.
+ */
+async function syncKnowledgeItemsOnCompletion(processId: string, interviewId: string, state: InterviewState) {
+  const rows: { category: string; text: string }[] = [
+    ...state.knowledge.map((text) => ({ category: 'KNOWLEDGE', text })),
+    ...state.templates.map((text) => ({ category: 'TEMPLATE', text }))
+  ];
+  for (const row of rows) {
+    await prisma.knowledgeItem.upsert({
+      where: { processId_category_text: { processId, category: row.category, text: row.text } },
+      update: {},
+      create: { processId, category: row.category, text: row.text, sourceInterviewId: interviewId }
+    });
+  }
+}
+
 async function persistTurn(params: { interviewId: string; processId: string; state: InterviewState; action: EngineAction }) {
   const { interviewId, processId, state, action } = params;
   await recordActionMessage(interviewId, action);
@@ -193,7 +213,7 @@ async function persistTurn(params: { interviewId: string; processId: string; sta
 /**
  * Shared core for every "take a turn" action (authenticated or guest): load + ownership-check the
  * interview, record the employee's side of this turn as a chat message, run the engine, persist
- * the result, and — if this turn completed the interview — audit-log it.
+ * the result, and — if this turn completed the interview — audit-log it and extract its knowledge.
  */
 async function performTurn(
   interviewId: string,
@@ -211,6 +231,8 @@ async function performTurn(
   await persistTurn({ interviewId, processId: interview.processId, state, action });
 
   if (state.completed) {
+    await syncKnowledgeItemsOnCompletion(interview.processId, interviewId, state);
+
     await writeAuditLog({
       actorId: actor?.userId ?? null,
       action: 'interview.completed',
@@ -219,6 +241,9 @@ async function performTurn(
       metadata: {}
     });
     revalidatePath('/ai-interviews');
+    revalidatePath('/process-discovery');
+    revalidatePath('/digital-twin');
+    revalidatePath('/knowledge-base');
   }
 
   return { action, state };

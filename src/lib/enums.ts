@@ -33,6 +33,19 @@ export const SourceTrustLevel = {
 } as const;
 export type SourceTrustLevel = (typeof SourceTrustLevel)[keyof typeof SourceTrustLevel];
 
+export const TRUST_LEVEL_LABELS: Record<SourceTrustLevel, string> = {
+  BACKEND_APPROVED: 'Backend approved',
+  APPROVED_SOP_POLICY: 'Approved SOP/policy',
+  PROCESS_OWNER_CONFIRMED: 'Process owner confirmed',
+  DEPARTMENT_HEAD_CONFIRMED: 'Department head confirmed',
+  MULTI_EMPLOYEE_CONSENSUS: 'Multi-employee consensus',
+  EMPLOYEE_STATEMENT: 'Employee statement',
+  ANALYTIX_PUBLIC_KNOWLEDGE: 'Analytix public knowledge',
+  OFFICIAL_REGULATORY_SOURCE: 'Official regulatory source',
+  OTHER_RELIABLE_REFERENCE: 'Other reliable reference',
+  AI_INFERENCE: 'AI inference'
+};
+
 export const ProjectStatus = {
   SETUP: 'SETUP',
   DISCOVERY: 'DISCOVERY',

@@ -96,6 +96,7 @@ model User {
   interviewsConducted   Interview[]
   inviteLinksAsEmployee InterviewInviteLink[]        @relation("InviteLinkEmployee")
   inviteLinksCreated    InterviewInviteLink[]        @relation("InviteLinkCreator")
+  sopsGenerated         Sop[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -201,6 +202,8 @@ model Process {
   createdById String
   createdBy   User     @relation(fields: [createdById], references: [id])
   interviews  Interview[]
+  sop            Sop?
+  knowledgeItems KnowledgeItem[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -287,6 +290,45 @@ model InterviewObservation {
 }
 
 // ---------------------------------------------------------------------------
+// PHASE 3 — Process Digital Twin, SOP Library & Knowledge Base
+// ---------------------------------------------------------------------------
+//
+// Digital Twin / Process Discovery / Process Maps / Bottlenecks are pure derived read views over
+// the Phase 2 tables above (Process, Interview.stateJson, InterviewStepRecord,
+// InterviewObservation) — no schema needed for those. SOP Library and Knowledge Base persist
+// their own deterministically-generated content below.
+
+model Sop {
+  id                String   @id @default(cuid())
+  processId         String   @unique
+  process           Process  @relation(fields: [processId], references: [id], onDelete: Cascade)
+  title             String
+  contentMd         String // deterministic markdown template generated from captured facts (src/lib/sop-template.ts)
+  status            String   @default("DRAFT") // DRAFT | PUBLISHED
+  sourceInterviewId String // not a relation: the SOP should outlive the interview it was generated from
+  generatedById     String
+  generatedBy       User     @relation(fields: [generatedById], references: [id])
+  generatedAt       DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+// One row per distinct knowledge/template statement an employee mentioned during an interview
+// (engine state's `knowledge[]` / `templates[]` arrays) — populated automatically when an
+// interview completes (see syncKnowledgeItemsOnCompletion in src/lib/actions/interviews.ts).
+model KnowledgeItem {
+  id                String   @id @default(cuid())
+  processId         String
+  process           Process  @relation(fields: [processId], references: [id], onDelete: Cascade)
+  category          String // KNOWLEDGE | TEMPLATE
+  text              String
+  trustLevel        String   @default("EMPLOYEE_STATEMENT") // SourceTrustLevel (see src/lib/enums.ts)
+  sourceInterviewId String // not a relation: the item should outlive the interview it was captured from
+  createdAt         DateTime @default(now())
+
+  @@unique([processId, category, text])
+}
+
+// ---------------------------------------------------------------------------
 // PHASE 2+ ROADMAP (not migrated — documentation of target schema; see README)
 // ---------------------------------------------------------------------------
 //
@@ -304,11 +346,9 @@ model InterviewObservation {
 //
 // Interview* — implemented in Phase 2 above (in a pragmatic, not fully spec-normalized, shape).
 //
-// model KnowledgeItem { id, category, question, answer, processId, departmentId, countryId,
-//   source, owner, status, version, effectiveDate, lastReviewed, reviewDueDate }
+// KnowledgeItem / Sop — implemented in Phase 3 above (also in a pragmatic shape: no versioning,
+// department/country scoping, or approval workflow yet — those remain future work described here).
 // model KnowledgeVersion { ... }
-//
-// model Sop { id, projectId, title, purpose, scope, status /* draft/review/approved/archived */ }
 // model SopVersion { id, sopId, version, changedBy, changeSummary, approvedBy, effectiveDate }
 //
 // model AiOpportunity { id, projectId, title, description, scoring{...}, recommendation }

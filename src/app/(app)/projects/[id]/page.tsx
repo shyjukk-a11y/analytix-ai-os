@@ -10,6 +10,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { KnowledgeUploadForm } from '@/components/projects/KnowledgeUploadForm';
 import { StartInterviewForm } from '@/components/interviews/StartInterviewForm';
 import { languageOptions } from '@/lib/interview-engine';
+import { TRUST_LEVEL_LABELS } from '@/lib/enums';
 
 function DetailRow({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null;
@@ -20,19 +21,6 @@ function DetailRow({ label, value }: { label: string; value?: string | null }) {
     </div>
   );
 }
-
-const TRUST_LABELS: Record<string, string> = {
-  BACKEND_APPROVED: 'Backend approved',
-  APPROVED_SOP_POLICY: 'Approved SOP/policy',
-  PROCESS_OWNER_CONFIRMED: 'Process owner confirmed',
-  DEPARTMENT_HEAD_CONFIRMED: 'Department head confirmed',
-  MULTI_EMPLOYEE_CONSENSUS: 'Multi-employee consensus',
-  EMPLOYEE_STATEMENT: 'Employee statement',
-  ANALYTIX_PUBLIC_KNOWLEDGE: 'Analytix public knowledge',
-  OFFICIAL_REGULATORY_SOURCE: 'Official regulatory source',
-  OTHER_RELIABLE_REFERENCE: 'Other reliable reference',
-  AI_INFERENCE: 'AI inference'
-};
 
 export default async function ProjectDetailPage({ params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
@@ -137,7 +125,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
                       <div className="font-medium text-navy-950">{k.fileName}</div>
                       <div className="mt-0.5 flex items-center justify-between text-xs text-slate-400">
                         <span>{(k.sizeBytes / 1024).toFixed(0)} KB · {k.uploadedBy.name}</span>
-                        <Badge tone="neutral">{TRUST_LABELS[k.trustLevel]}</Badge>
+                        <Badge tone="neutral">{TRUST_LEVEL_LABELS[k.trustLevel as keyof typeof TRUST_LEVEL_LABELS] ?? k.trustLevel}</Badge>
                       </div>
                     </li>
                   ))}

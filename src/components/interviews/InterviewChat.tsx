@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useRef, useEffect } from 'react';
 import { getButtonLabels, observationTagLabel, type EngineAction, type InterviewState } from '@/lib/interview-engine';
+import { extractProcessFacts, OBS_STATUS_TONE } from '@/lib/process-facts';
 import { Card, CardHeader, CardBody } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -19,47 +20,6 @@ export type InterviewChatActions = {
   resolveObservation: (interviewId: string, observationKey: string, status: 'confirmed' | 'partly' | 'rejected') => Promise<TurnResult>;
   confirmSummary: (interviewId: string) => Promise<TurnResult>;
   requestCorrection: (interviewId: string) => Promise<TurnResult>;
-};
-
-const DEP_LABELS: Record<string, string> = {
-  client: 'Client',
-  otherDept: 'Other department',
-  manager: 'Manager / supervisor',
-  authority: 'External authority',
-  vendor: 'Vendor / supplier',
-  external: 'External consultant'
-};
-
-const PROBLEM_LABELS: Record<string, string> = {
-  manualWork: 'Manual work',
-  repeatedEntry: 'Repeated data entry',
-  waiting: 'Waiting on something',
-  followUp: 'Manual follow-up needed',
-  missingDocs: 'Missing documents',
-  errors: 'Errors',
-  rework: 'Rework',
-  delays: 'Delays',
-  unclearResp: 'Unclear responsibility',
-  noChecklist: 'No documented checklist'
-};
-
-const DIM_LABELS: Record<string, string> = {
-  start: 'Basics',
-  workflow: 'Workflow',
-  roles: 'Roles',
-  systems: 'Systems',
-  controls: 'Controls',
-  waiting: 'Waiting / delays',
-  exceptions: 'Exceptions',
-  knowledge: 'Knowledge',
-  aiOpp: 'AI opportunities',
-  kpis: 'Wrap-up'
-};
-
-const OBS_STATUS_TONE: Record<string, 'success' | 'warning' | 'neutral'> = {
-  confirmed: 'success',
-  partly: 'warning',
-  rejected: 'neutral'
 };
 
 function actionToText(action: EngineAction): string {
@@ -84,33 +44,33 @@ function Bubble({ message }: { message: ChatMessage }) {
   );
 }
 
+// Renders the exact same shape of facts (extractProcessFacts) that Phase 3's Process Digital
+// Twin, SOP generator and Knowledge Base modules read from the persisted stateJson — so what an
+// employee sees captured live matches what reviewers see afterwards, byte for byte.
 function FactsPanel({ state }: { state: InterviewState }) {
-  const systems = Object.keys(state.systemsMentioned);
-  const activeDeps = (Object.keys(DEP_LABELS) as (keyof typeof DEP_LABELS)[]).filter((k) => (state.deps as any)[k]);
-  const activeProblems = (Object.keys(PROBLEM_LABELS) as (keyof typeof PROBLEM_LABELS)[]).filter((k) => (state.problems as any)[k]);
-  const dimKeys = Object.keys(DIM_LABELS) as (keyof typeof DIM_LABELS)[];
+  const facts = extractProcessFacts(state);
 
   return (
     <Card>
       <CardHeader className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-navy-950">Captured so far</h2>
-        <Badge tone="brand">{state.completeness}% complete</Badge>
+        <Badge tone="brand">{facts.completeness}% complete</Badge>
       </CardHeader>
       <CardBody className="space-y-5 text-sm">
         <div className="space-y-1">
-          {state.department ? <div><span className="text-xs text-slate-400">Department: </span>{state.department}</div> : null}
-          {state.role ? <div><span className="text-xs text-slate-400">Role: </span>{state.role}</div> : null}
-          {state.name ? <div><span className="text-xs text-slate-400">Process: </span>{state.name}</div> : null}
-          {state.trigger ? <div><span className="text-xs text-slate-400">Trigger: </span>{state.trigger}</div> : null}
-          {state.outcome ? <div><span className="text-xs text-slate-400">Outcome: </span>{state.outcome}</div> : null}
-          {state.frequency ? <div><span className="text-xs text-slate-400">Frequency: </span>{state.frequency}</div> : null}
+          {facts.department ? <div><span className="text-xs text-slate-400">Department: </span>{facts.department}</div> : null}
+          {facts.role ? <div><span className="text-xs text-slate-400">Role: </span>{facts.role}</div> : null}
+          {facts.name ? <div><span className="text-xs text-slate-400">Process: </span>{facts.name}</div> : null}
+          {facts.trigger ? <div><span className="text-xs text-slate-400">Trigger: </span>{facts.trigger}</div> : null}
+          {facts.outcome ? <div><span className="text-xs text-slate-400">Outcome: </span>{facts.outcome}</div> : null}
+          {facts.frequency ? <div><span className="text-xs text-slate-400">Frequency: </span>{facts.frequency}</div> : null}
         </div>
 
-        {state.steps.length ? (
+        {facts.steps.length ? (
           <div>
             <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Workflow steps</div>
             <ol className="list-decimal space-y-1.5 pl-4">
-              {state.steps.map((s, idx) => (
+              {facts.steps.map((s, idx) => (
                 <li key={idx}>
                   {s.text}
                   {s.systems.length ? <span className="text-xs text-slate-400"> · {s.systems.join(', ')}</span> : null}
@@ -120,52 +80,52 @@ function FactsPanel({ state }: { state: InterviewState }) {
           </div>
         ) : null}
 
-        {systems.length ? (
+        {facts.systems.length ? (
           <div>
             <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Systems</div>
             <div className="flex flex-wrap gap-1.5">
-              {systems.map((s) => <Badge key={s}>{s}</Badge>)}
+              {facts.systems.map((s) => <Badge key={s}>{s}</Badge>)}
             </div>
           </div>
         ) : null}
 
-        {activeDeps.length ? (
+        {facts.activeDeps.length ? (
           <div>
             <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Depends on</div>
             <div className="flex flex-wrap gap-1.5">
-              {activeDeps.map((k) => <Badge key={k}>{DEP_LABELS[k]}</Badge>)}
+              {facts.activeDeps.map((d) => <Badge key={d.key}>{d.label}</Badge>)}
             </div>
           </div>
         ) : null}
 
-        {activeProblems.length ? (
+        {facts.activeProblems.length ? (
           <div>
             <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Pain points observed</div>
             <div className="flex flex-wrap gap-1.5">
-              {activeProblems.map((k) => <Badge key={k} tone="caution">{PROBLEM_LABELS[k]}</Badge>)}
+              {facts.activeProblems.map((p) => <Badge key={p.key} tone="caution">{p.label}</Badge>)}
             </div>
           </div>
         ) : null}
 
-        {state.exceptions.length ? (
+        {facts.exceptions.length ? (
           <div>
             <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Exceptions</div>
-            <ul className="list-disc space-y-1 pl-4">{state.exceptions.map((e, i) => <li key={i}>{e}</li>)}</ul>
+            <ul className="list-disc space-y-1 pl-4">{facts.exceptions.map((e, i) => <li key={i}>{e}</li>)}</ul>
           </div>
         ) : null}
 
-        {state.knowledge.length ? (
+        {facts.knowledge.length ? (
           <div>
             <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Knowledge relied on</div>
-            <ul className="list-disc space-y-1 pl-4">{state.knowledge.map((k, i) => <li key={i}>{k}</li>)}</ul>
+            <ul className="list-disc space-y-1 pl-4">{facts.knowledge.map((k, i) => <li key={i}>{k}</li>)}</ul>
           </div>
         ) : null}
 
-        {state.aiObservations.length ? (
+        {facts.aiObservations.length ? (
           <div>
             <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">AI observations</div>
             <div className="space-y-1.5">
-              {state.aiObservations.map((o, i) => (
+              {facts.aiObservations.map((o, i) => (
                 <div key={i} className="flex items-start justify-between gap-2">
                   <span className="text-slate-600">{o.text}</span>
                   <Badge tone={OBS_STATUS_TONE[o.status] ?? 'neutral'}>{o.status}</Badge>
@@ -178,11 +138,11 @@ function FactsPanel({ state }: { state: InterviewState }) {
         <div>
           <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Coverage by dimension</div>
           <div className="space-y-1.5">
-            {dimKeys.map((k) => (
-              <div key={k} className="flex items-center gap-2">
-                <span className="w-32 shrink-0 text-xs text-slate-500">{DIM_LABELS[k]}</span>
+            {facts.dims.map((d) => (
+              <div key={d.key} className="flex items-center gap-2">
+                <span className="w-32 shrink-0 text-xs text-slate-500">{d.label}</span>
                 <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-muted">
-                  <div className="h-full rounded-full bg-brand-blue" style={{ width: `${(state.dims as any)[k]}%` }} />
+                  <div className="h-full rounded-full bg-brand-blue" style={{ width: `${d.value}%` }} />
                 </div>
               </div>
             ))}
