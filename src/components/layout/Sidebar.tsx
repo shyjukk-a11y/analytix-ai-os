@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
 import { NAV_MODULES } from '@/lib/nav-config';
 import { can, type Permission, ROLE_LABELS } from '@/lib/rbac';
-import type { Role } from '@prisma/client';
+import type { Role } from '@/lib/enums';
 import { signOut } from 'next-auth/react';
 
 export function Sidebar({ userRole, userName }: { userRole: Role; userName: string }) {

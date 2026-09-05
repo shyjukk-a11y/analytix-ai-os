@@ -1,4 +1,4 @@
-import { Role } from '@prisma/client';
+import { Role } from '@/lib/enums';
 
 /**
  * Role-based access control (Phase 1).

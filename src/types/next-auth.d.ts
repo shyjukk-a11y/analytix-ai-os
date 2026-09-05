@@ -1,4 +1,4 @@
-import { Role } from '@prisma/client';
+import { Role } from '@/lib/enums';
 import 'next-auth';
 import 'next-auth/jwt';
 

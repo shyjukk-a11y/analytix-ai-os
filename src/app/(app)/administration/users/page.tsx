@@ -3,6 +3,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { ROLE_LABELS } from '@/lib/rbac';
+import type { Role } from '@/lib/enums';
 
 export default async function UsersPage() {
   const users = await prisma.user.findMany({ orderBy: { name: 'asc' } });
@@ -23,7 +24,7 @@ export default async function UsersPage() {
               </div>
               <div className="flex items-center gap-2">
                 {u.isDemoUser ? <Badge tone="neutral">Demo</Badge> : null}
-                <Badge tone="brand">{ROLE_LABELS[u.role]}</Badge>
+                <Badge tone="brand">{ROLE_LABELS[u.role as Role]}</Badge>
               </div>
             </div>
           ))}

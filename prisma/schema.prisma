@@ -22,46 +22,6 @@ datasource db {
 // PHASE 1 — Foundation
 // ---------------------------------------------------------------------------
 
-enum Role {
-  EMPLOYEE
-  PROCESS_OWNER
-  DEPARTMENT_HEAD
-  AI_TRANSFORMATION_COMMITTEE
-  TECHNOLOGY_TEAM
-  INFORMATION_SECURITY
-  LEGAL_COMPLIANCE_REVIEWER
-  MANAGEMENT_CEO
-  ADMINISTRATOR
-}
-
-enum SourceTrustLevel {
-  BACKEND_APPROVED
-  APPROVED_SOP_POLICY
-  PROCESS_OWNER_CONFIRMED
-  DEPARTMENT_HEAD_CONFIRMED
-  MULTI_EMPLOYEE_CONSENSUS
-  EMPLOYEE_STATEMENT
-  ANALYTIX_PUBLIC_KNOWLEDGE
-  OFFICIAL_REGULATORY_SOURCE
-  OTHER_RELIABLE_REFERENCE
-  AI_INFERENCE
-}
-
-enum ProjectStatus {
-  SETUP
-  DISCOVERY
-  PROPOSED
-  COMMITTEE_REVIEW
-  APPROVED
-  DEVELOPMENT
-  TECHNICAL_REVIEW
-  PILOT
-  PRODUCTION
-  MEASURING_IMPACT
-  ON_HOLD
-  ARCHIVED
-}
-
 model Organization {
   id        String     @id @default(cuid())
   name      String
@@ -118,7 +78,7 @@ model User {
   name         String
   email        String   @unique
   passwordHash String
-  role         Role
+  role         String // Role (see src/lib/enums.ts) - SQLite has no native enum support
   jobTitle     String?
   isDemoUser   Boolean  @default(false)
   active       Boolean  @default(true)
@@ -142,7 +102,7 @@ model AiTransformationProject {
   id          String        @id @default(cuid())
   name        String
   description String?
-  status      ProjectStatus @default(SETUP)
+  status      String        @default("SETUP") // ProjectStatus (see src/lib/enums.ts)
 
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -190,7 +150,7 @@ model KnowledgeSource {
   mimeType     String
   sizeBytes    Int
   storagePath  String // path relative to KNOWLEDGE_STORAGE_DIR
-  trustLevel   SourceTrustLevel @default(EMPLOYEE_STATEMENT)
+  trustLevel   String            @default("EMPLOYEE_STATEMENT") // SourceTrustLevel (see src/lib/enums.ts)
   extractedText String? // populated by a later-phase extraction/RAG pipeline; null in Phase 1
 
   uploadedById String

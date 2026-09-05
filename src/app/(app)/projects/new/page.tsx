@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
-import { Role } from '@prisma/client';
+import { Role } from '@/lib/enums';
 import { createProject } from '@/lib/actions/projects';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardBody } from '@/components/ui/Card';
