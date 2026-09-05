@@ -1,9 +1,11 @@
 // Analytix AI Business Transformation OS — Data Model
 //
-// PHASE 1 (active): org structure, auth/RBAC, project setup, knowledge sources, audit log.
-// Everything below the "PHASE 2+" divider is intentionally NOT migrated yet — it documents
-// the target data model from the product spec so later phases extend this schema instead of
-// inventing a parallel one. Uncomment/adapt model-by-model as each phase is built.
+// PHASE 1 + 2 (active): org structure, auth/RBAC, project setup, knowledge sources, audit log,
+// and AI-led employee interviews (Process/Interview/InterviewMessage/InterviewStepRecord/
+// InterviewObservation). Everything below the "PHASE 2+ ROADMAP" divider is intentionally NOT
+// migrated yet — it documents the target data model from the product spec so later phases extend
+// this schema instead of inventing a parallel one. Uncomment/adapt model-by-model as each phase
+// is built.
 
 generator client {
   provider = "prisma-client-js"
@@ -86,10 +88,14 @@ model User {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  headOfDepartments   Department[]               @relation("DepartmentHead")
-  ownedProjects       AiTransformationProject[]   @relation("ProcessOwner")
-  uploadedKnowledge   KnowledgeSource[]
-  auditLogs           AuditLog[]
+  headOfDepartments     Department[]               @relation("DepartmentHead")
+  ownedProjects         AiTransformationProject[]   @relation("ProcessOwner")
+  uploadedKnowledge     KnowledgeSource[]
+  auditLogs             AuditLog[]
+  createdProcesses      Process[]
+  interviewsConducted   Interview[]
+  inviteLinksAsEmployee InterviewInviteLink[]        @relation("InviteLinkEmployee")
+  inviteLinksCreated    InterviewInviteLink[]        @relation("InviteLinkCreator")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -136,6 +142,8 @@ model AiTransformationProject {
   existingAiTools        String?
 
   knowledgeSources KnowledgeSource[]
+  processes        Process[]
+  inviteLinks      InterviewInviteLink[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -171,6 +179,114 @@ model AuditLog {
 }
 
 // ---------------------------------------------------------------------------
+// PHASE 2 — AI Interviews
+// ---------------------------------------------------------------------------
+//
+// A pragmatic Phase 2 shape rather than the full spec-section-7/9/12 normalized model
+// (InterviewQuestion / InterviewAnswer / InterviewFact / ProcessStep with FactStatus): the
+// deterministic engine's full bookkeeping state (src/lib/interview-engine.ts's InterviewState)
+// is round-tripped as JSON in Interview.stateJson between turns, while the parts other Phase 3+
+// modules will actually need to query — the transcript, the extracted walkthrough steps, and the
+// AI Observation confirmations — get their own normalized tables below. When Phase 3 builds the
+// process digital twin it can migrate stateJson's contents into the fuller spec model without
+// changing how interviews are conducted.
+
+model Process {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     AiTransformationProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String? // filled in once the employee names it (engine state's qProcessName answer)
+  department  String?
+  status      String   @default("IN_PROGRESS") // IN_PROGRESS | COMPLETE (an Interview reaching status=COMPLETED marks this)
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  interviews  Interview[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Interview {
+  id           String    @id @default(cuid())
+  processId    String
+  process      Process   @relation(fields: [processId], references: [id], onDelete: Cascade)
+  employeeId   String
+  employee     User      @relation(fields: [employeeId], references: [id])
+  language     String    @default("en") // en | hi | ar | zh | ml
+  status       String    @default("IN_PROGRESS") // IN_PROGRESS | COMPLETED | ABANDONED
+  stateJson    String // JSON-serialized InterviewState (src/lib/interview-engine.ts) — see note above
+  completeness Int       @default(0)
+  // Set only when this interview was started from a shareable invite link (src/app/interview/[token])
+  // rather than by the employee signing in — see InterviewInviteLink below. Guest server actions
+  // (submitGuestInterviewAnswer etc.) only ever operate on interviews where this is non-null, so a
+  // normal authenticated employee's interview can never be reached without a session.
+  inviteLinkId String?
+  inviteLink   InterviewInviteLink? @relation(fields: [inviteLinkId], references: [id])
+  startedAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  completedAt  DateTime?
+
+  messages     InterviewMessage[]
+  steps        InterviewStepRecord[]
+  observations InterviewObservation[]
+}
+
+// A shareable link generated for one specific project + pre-selected staff member, so that
+// person can conduct their AI interview by following the link — no Analytix OS login required.
+// The link generator picks Department -> Project -> Staff Name (all existing records); opening
+// the link starts (or resumes) that staff member's interview immediately.
+model InterviewInviteLink {
+  id          String   @id @default(cuid())
+  token       String   @unique @default(cuid())
+  projectId   String
+  project     AiTransformationProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  employeeId  String
+  employee    User     @relation("InviteLinkEmployee", fields: [employeeId], references: [id])
+  language    String   @default("en")
+  active      Boolean  @default(true)
+  createdById String
+  createdBy   User     @relation("InviteLinkCreator", fields: [createdById], references: [id])
+  interviews  Interview[]
+  createdAt   DateTime @default(now())
+}
+
+model InterviewMessage {
+  id          String    @id @default(cuid())
+  interviewId String
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  sender      String // AI | EMPLOYEE
+  questionKey String? // the engine's question key this message asked or answered, e.g. "qFirstStep"
+  text        String
+  createdAt   DateTime  @default(now())
+}
+
+// One row per step the employee described while walking through a real case
+// (engine state's `steps` array — see handleWalkthroughStep in interview-engine.ts).
+model InterviewStepRecord {
+  id          String    @id @default(cuid())
+  interviewId String
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  stepIndex   Int
+  text        String
+  owner       String?
+  systems     String? // comma-separated system names mentioned in this step
+  createdAt   DateTime  @default(now())
+}
+
+// One row per AI Observation card shown and resolved (Yes / Partly / No) — never silently
+// assumed; see the master prompt's "AI Observation confirmation" requirement.
+model InterviewObservation {
+  id          String    @id @default(cuid())
+  interviewId String
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  key         String // duplicateEntry | docDependency | knowledgeRisk | manualFollowUp | authorityCheck | bottleneckGeneral
+  category    String // OBSERVATION | BOTTLENECK | KNOWLEDGE_RISK
+  text        String
+  status      String    @default("PENDING") // PENDING | CONFIRMED | PARTLY | REJECTED
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+}
+
+// ---------------------------------------------------------------------------
 // PHASE 2+ ROADMAP (not migrated — documentation of target schema; see README)
 // ---------------------------------------------------------------------------
 //
@@ -186,16 +302,7 @@ model AuditLog {
 // model ProcessException { ... }
 // model ProcessBottleneck { ... }
 //
-// model Interview { ... }
-// model InterviewQuestion { ... }
-// model InterviewAnswer {
-//   id, interviewId, questionId, originalAnswer, normalizedAnswer, language,
-//   answerQuality, createdAt   // see spec sections 9 + 14
-// }
-// model InterviewFact {
-//   id, processVersionId, field, value, status /* FactStatus enum, spec section 7 */,
-//   source, sourceAnswerId, confidence, evidence, version, lastValidatedAt
-// }
+// Interview* — implemented in Phase 2 above (in a pragmatic, not fully spec-normalized, shape).
 //
 // model KnowledgeItem { id, category, question, answer, processId, departmentId, countryId,
 //   source, owner, status, version, effectiveDate, lastReviewed, reviewDueDate }

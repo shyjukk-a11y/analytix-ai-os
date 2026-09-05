@@ -20,7 +20,7 @@ export const NAV_MODULES: NavModule[] = [
   { slug: 'departments', label: 'Departments', href: '/departments', icon: '🏢', phase: 1, implemented: true, requires: 'setup.manage', description: 'Country / division / department structure and ownership.' },
   { slug: 'projects', label: 'Projects', href: '/projects', icon: '📁', phase: 1, implemented: true, requires: 'setup.manage', description: 'AI transformation project setup and scope.' },
   { slug: 'process-discovery', label: 'Process Discovery', href: '/process-discovery', icon: '🧭', phase: 3, implemented: false, description: 'Processes identified and their discovery status.' },
-  { slug: 'ai-interviews', label: 'AI Interviews', href: '/ai-interviews', icon: '💬', phase: 2, implemented: false, description: 'Multilingual AI-led employee interviews.' },
+  { slug: 'ai-interviews', label: 'AI Interviews', href: '/ai-interviews', icon: '💬', phase: 2, implemented: true, requires: 'interview.conduct', description: 'Multilingual AI-led employee interviews.' },
   { slug: 'digital-twin', label: 'Process Digital Twin', href: '/digital-twin', icon: '🧬', phase: 3, implemented: false, description: 'Structured, visual representation of each discovered process.' },
   { slug: 'process-maps', label: 'Process Maps', href: '/process-maps', icon: '🗺️', phase: 3, implemented: false, description: 'Flowcharts, swimlanes and system interaction maps.' },
   { slug: 'sop-library', label: 'SOP Library', href: '/sop-library', icon: '📋', phase: 3, implemented: false, description: 'Generated SOPs with version control and approval status.' },

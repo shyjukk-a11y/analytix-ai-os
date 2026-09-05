@@ -8,6 +8,8 @@ import { Card, CardBody, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { KnowledgeUploadForm } from '@/components/projects/KnowledgeUploadForm';
+import { StartInterviewForm } from '@/components/interviews/StartInterviewForm';
+import { languageOptions } from '@/lib/interview-engine';
 
 function DetailRow({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null;
@@ -98,6 +100,17 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
                 <div className="text-xs text-slate-400">Department</div>
                 <div className="text-slate-700">{project.department.name}</div>
               </div>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader><h2 className="text-sm font-semibold text-navy-950">AI Interview</h2></CardHeader>
+            <CardBody>
+              {can(session?.user.role, 'interview.conduct') ? (
+                <StartInterviewForm projects={[{ id: project.id, name: project.name }]} languages={languageOptions()} />
+              ) : (
+                <p className="text-sm text-slate-500">You do not have permission to conduct interviews.</p>
+              )}
             </CardBody>
           </Card>
 

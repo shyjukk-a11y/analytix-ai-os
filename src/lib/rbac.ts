@@ -24,7 +24,9 @@ export type Permission =
   | 'setup.manage' // create/edit departments & projects
   | 'admin.manage' // administration module (users, config)
   | 'knowledge.upload'
-  | 'executive.view';
+  | 'executive.view'
+  | 'interview.conduct' // start/answer an AI-led interview about your own work
+  | 'interview.review'; // view captured interview results across employees
 
 const PERMISSIONS: Record<Permission, Role[]> = {
   'setup.manage': ['ADMINISTRATOR', 'DEPARTMENT_HEAD', 'PROCESS_OWNER'],
@@ -36,7 +38,19 @@ const PERMISSIONS: Record<Permission, Role[]> = {
     'EMPLOYEE',
     'TECHNOLOGY_TEAM'
   ],
-  'executive.view': ['ADMINISTRATOR', 'MANAGEMENT_CEO', 'AI_TRANSFORMATION_COMMITTEE', 'DEPARTMENT_HEAD']
+  'executive.view': ['ADMINISTRATOR', 'MANAGEMENT_CEO', 'AI_TRANSFORMATION_COMMITTEE', 'DEPARTMENT_HEAD'],
+  'interview.conduct': [
+    'ADMINISTRATOR',
+    'DEPARTMENT_HEAD',
+    'PROCESS_OWNER',
+    'EMPLOYEE',
+    'TECHNOLOGY_TEAM',
+    'INFORMATION_SECURITY',
+    'LEGAL_COMPLIANCE_REVIEWER',
+    'AI_TRANSFORMATION_COMMITTEE',
+    'MANAGEMENT_CEO'
+  ],
+  'interview.review': ['ADMINISTRATOR', 'DEPARTMENT_HEAD', 'PROCESS_OWNER', 'AI_TRANSFORMATION_COMMITTEE', 'MANAGEMENT_CEO']
 };
 
 export function can(role: Role | undefined | null, permission: Permission): boolean {
