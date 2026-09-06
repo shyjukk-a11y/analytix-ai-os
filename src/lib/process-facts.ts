@@ -121,3 +121,90 @@ export function pickPrimaryInterview<T extends { status: string; completeness: n
   const pool = completed.length ? completed : interviews;
   return [...pool].sort((a, b) => b.completeness - a.completeness || b.startedAt.getTime() - a.startedAt.getTime())[0];
 }
+
+// ---------------------------------------------------------------------------
+// Multi-interview reconciliation (Phase 2 extension)
+// ---------------------------------------------------------------------------
+//
+// A process can be described by more than one completed interview (see joinProcessId on
+// startInterview). pickPrimaryInterview above silently picks one and discards the rest, which is
+// fine when they agree but wrong when they don't. compareProcessFacts checks whether two or more
+// completed interviews on the same process actually agree on the fields that end up as one linear
+// narrative in the generated SOP; anywhere they disagree, the caller (checkProcessForConflicts in
+// actions/interviews.ts) flags the Process as NEEDS_REVIEW instead of letting one version win by
+// accident.
+const COMPARE_FIELDS: { field: 'role' | 'frequency' | 'trigger' | 'outcome' | 'checkerDetail' | 'rejectionHandling'; label: string }[] = [
+  { field: 'role', label: 'Role performing this process' },
+  { field: 'frequency', label: 'Typical frequency' },
+  { field: 'trigger', label: 'Trigger' },
+  { field: 'outcome', label: 'Completion criteria / outcome' },
+  { field: 'checkerDetail', label: 'Checked / approved by' },
+  { field: 'rejectionHandling', label: 'If rejected or sent back' }
+];
+
+export type ReconcileField = (typeof COMPARE_FIELDS)[number]['field'];
+
+export type ProcessFactsFieldDiff = {
+  field: ReconcileField;
+  label: string;
+  values: { interviewId: string; employeeName: string; value: string | null }[];
+};
+
+export type ProcessFactsStepsOption = {
+  interviewId: string;
+  employeeName: string;
+  steps: { text: string; owner: string; systems: string[] }[];
+};
+
+export type ProcessFactsComparison = {
+  fieldDiffs: ProcessFactsFieldDiff[];
+  stepsDiffer: boolean;
+  stepsByInterview: ProcessFactsStepsOption[];
+};
+
+function normalizeForCompare(value: string | null): string {
+  return (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function stepsEqual(a: ProcessFacts['steps'], b: ProcessFacts['steps']): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((step, i) => normalizeForCompare(step.text) === normalizeForCompare(b[i].text) && normalizeForCompare(step.owner) === normalizeForCompare(b[i].owner));
+}
+
+/**
+ * Compare the captured facts from every completed interview on one process. Returns only the
+ * fields/step-lists that actually disagree (an empty result means every interview told a
+ * consistent story, even if there are several of them) — nothing here decides which version is
+ * "right"; that is always a human reviewer's call (see resolveProcessConflict).
+ */
+export function compareProcessFacts(
+  entries: { interviewId: string; employeeName: string; facts: ProcessFacts }[]
+): ProcessFactsComparison {
+  const fieldDiffs: ProcessFactsFieldDiff[] = [];
+
+  if (entries.length > 1) {
+    for (const { field, label } of COMPARE_FIELDS) {
+      const distinct = new Set(entries.map((e) => normalizeForCompare(e.facts[field])));
+      if (distinct.size > 1) {
+        fieldDiffs.push({
+          field,
+          label,
+          values: entries.map((e) => ({ interviewId: e.interviewId, employeeName: e.employeeName, value: e.facts[field] }))
+        });
+      }
+    }
+  }
+
+  const [first, ...rest] = entries;
+  const stepsDiffer = entries.length > 1 && rest.some((e) => !stepsEqual(e.facts.steps, first.facts.steps));
+
+  return {
+    fieldDiffs,
+    stepsDiffer,
+    stepsByInterview: entries.map((e) => ({ interviewId: e.interviewId, employeeName: e.employeeName, steps: e.facts.steps }))
+  };
+}
+
+export function hasConflicts(comparison: ProcessFactsComparison): boolean {
+  return comparison.fieldDiffs.length > 0 || comparison.stepsDiffer;
+}

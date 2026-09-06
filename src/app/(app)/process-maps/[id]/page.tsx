@@ -7,6 +7,8 @@ import { prisma } from '@/lib/prisma';
 import { extractProcessFacts, pickPrimaryInterview } from '@/lib/process-facts';
 import type { InterviewState } from '@/lib/interview-engine';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { getProcessDependencySummary } from '@/lib/actions/process-delete';
+import { ProcessDeleteControls } from '@/components/process/ProcessDeleteControls';
 
 // Hand-built CSS flowchart — deliberately not a charting/diagramming npm package: adding one
 // risks the same platform-mismatch node_modules corruption that installing packages via the
@@ -81,6 +83,7 @@ export default async function ProcessMapDetailPage({ params }: { params: { id: s
   const state = JSON.parse(primary.stateJson) as InterviewState;
   const facts = extractProcessFacts(state);
   const hasDecision = Boolean(facts.checker || facts.checkerDetail);
+  const dependencySummary = await getProcessDependencySummary(process.id);
 
   return (
     <div>
@@ -88,9 +91,18 @@ export default async function ProcessMapDetailPage({ params }: { params: { id: s
         title={process.name || 'Untitled process'}
         subtitle={`${process.project.department.name} · ${process.project.name} · process map`}
         actions={
-          <Link href="/process-maps" className="self-center text-sm text-brand-blue hover:underline">
-            ← All process maps
-          </Link>
+          <>
+            <ProcessDeleteControls
+              processId={process.id}
+              summary={dependencySummary}
+              canFullDelete={can(session?.user.role, 'admin.manage')}
+              canDeleteInterviews={can(session?.user.role, 'interview.review')}
+              afterFullDeleteHref="/process-maps"
+            />
+            <Link href="/process-maps" className="self-center text-sm text-brand-blue hover:underline">
+              ← All process maps
+            </Link>
+          </>
         }
       />
 

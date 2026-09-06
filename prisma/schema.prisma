@@ -12,11 +12,11 @@ generator client {
 }
 
 datasource db {
-  // SQLite for zero-install local dev (Phase 1). Point DATABASE_URL at Postgres for later
-  // phases — pgvector (needed for Phase 3 RAG / semantic search) requires a real Postgres
-  // instance, so plan the swap before Phase 3: change provider to "postgresql" and re-run
-  // `prisma migrate dev`.
-  provider = "sqlite"
+  // Postgres (production). Run `npx prisma migrate dev --name init` once against your
+  // real Postgres connection string to generate a fresh baseline migration (the old
+  // SQLite-dialect migrations were removed since their SQL isn't valid on Postgres),
+  // then `npx prisma migrate deploy` for subsequent environments.
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -98,6 +98,14 @@ model User {
   inviteLinksCreated    InterviewInviteLink[]        @relation("InviteLinkCreator")
   sopsGenerated         Sop[]
   aiProjectsGenerated   AiProject[]
+  agentsPublished       Agent[]
+  roiEstimatesCalculated RoiEstimate[]
+  governanceDecisions   GovernanceStage[]
+  trainingModulesGenerated TrainingModule[]
+  changeRequestsRaised     ChangeRequest[]      @relation("ChangeRequestRaisedBy")
+  changeRequestsResolved   ChangeRequest[]      @relation("ChangeRequestResolvedBy")
+  impactMeasurementsRecorded ImpactMeasurement[]
+  integrationsConfigured   Integration[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -206,6 +214,7 @@ model Process {
   sop            Sop?
   knowledgeItems KnowledgeItem[]
   aiOpportunities AiOpportunity[]
+  joinInviteLinks InterviewInviteLink[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -250,6 +259,11 @@ model InterviewInviteLink {
   active      Boolean  @default(true)
   createdById String
   createdBy   User     @relation("InviteLinkCreator", fields: [createdById], references: [id])
+  // Set when the link was generated to gather ANOTHER perspective on a process someone already
+  // described (mirrors joinProcessId on startInterview), instead of always starting a fresh one.
+  // SetNull rather than Cascade: revoking/deleting the joined Process shouldn't take the link with it.
+  joinProcessId String?
+  joinProcess   Process? @relation(fields: [joinProcessId], references: [id], onDelete: SetNull)
   interviews  Interview[]
   createdAt   DateTime @default(now())
 }
@@ -312,6 +326,9 @@ model Sop {
   generatedBy       User     @relation(fields: [generatedById], references: [id])
   generatedAt       DateTime @default(now())
   updatedAt         DateTime @updatedAt
+
+  trainingModule TrainingModule?
+  changeRequests ChangeRequest[]
 }
 
 // One row per distinct knowledge/template statement an employee mentioned during an interview
@@ -358,7 +375,8 @@ model AiOpportunity {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  aiProject AiProject?
+  aiProject   AiProject?
+  roiEstimate RoiEstimate?
 
   @@unique([processId, key])
 }
@@ -374,6 +392,149 @@ model AiProject {
   generatedBy   User          @relation(fields: [generatedById], references: [id])
   generatedAt   DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
+
+  agent Agent?
+
+  // Phase 6: sequential governance sign-off, process owner through to production.
+  governanceStatus String            @default("NOT_STARTED") // NOT_STARTED | IN_REVIEW | APPROVED | REJECTED
+  productionAt     DateTime?
+  governanceStages GovernanceStage[]
+}
+
+
+// Phase 5: a published, reusable AI agent — the productized form of an AI Project once a
+// reviewer marks it PROPOSED and decides it's worth cataloguing for reuse elsewhere. `key` mirrors
+// AiOpportunity.key so the Agent Library page can surface "reuse candidates": other IDENTIFIED
+// opportunities of the same kind across the organization that this same agent could address.
+model Agent {
+  id              String    @id @default(cuid())
+  key             String // matches AiOpportunity.key (duplicateEntry | docDependency | ...)
+  category        String // OBSERVATION | BOTTLENECK | KNOWLEDGE_RISK (mirrors AiOpportunity.category)
+  name            String
+  description     String // the source AI Project's proposed approach, carried over verbatim
+  status          String    @default("DRAFT") // DRAFT | ACTIVE | RETIRED
+  sourceProjectId String    @unique
+  sourceProject   AiProject @relation(fields: [sourceProjectId], references: [id], onDelete: Cascade)
+  publishedById   String
+  publishedBy     User      @relation(fields: [publishedById], references: [id])
+  publishedAt     DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  impactMeasurements ImpactMeasurement[]
+}
+
+// Phase 5: a deterministic, formula-based savings estimate for one AI Opportunity — not a real
+// financial model, just a transparent calculation from reviewer-supplied inputs (case volume,
+// cost per hour) and a documented per-case time-saved heuristic keyed off the opportunity's impact
+// band (src/lib/roi-rules.ts). `assumptions` spells out exactly how the numbers were derived so a
+// reviewer never mistakes this for audited financial analysis.
+model RoiEstimate {
+  id                     String        @id @default(cuid())
+  opportunityId          String        @unique
+  opportunity            AiOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  monthlyVolume          Int
+  minutesSavedPerCase    Int
+  costPerHour            Float
+  hoursSavedPerMonth     Float
+  monthlySavingsEstimate Float
+  annualSavingsEstimate  Float
+  assumptions            String
+  calculatedById         String
+  calculatedBy           User          @relation(fields: [calculatedById], references: [id])
+  calculatedAt           DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+}
+
+
+// Phase 6: one fixed sign-off step in an AiProject's governance chain (process owner ->
+// department head -> legal/compliance -> information security -> AI transformation committee ->
+// management/CEO -> production). Stages are created together (stageOrder 1..6) when governance
+// review starts, and can only be decided in order -- see governance-rules.ts's currentStage() --
+// so "3/6 approved" always means stages 1-3, never an out-of-sequence subset.
+model GovernanceStage {
+  id          String    @id @default(cuid())
+  aiProjectId String
+  aiProject   AiProject @relation(fields: [aiProjectId], references: [id], onDelete: Cascade)
+  stageOrder  Int // 1..6, fixed sequence — see governance-rules.ts's STAGE_SEQUENCE
+  role        String // the Role required to decide this stage
+  status      String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  decidedById String?
+  decidedBy   User?     @relation(fields: [decidedById], references: [id])
+  decidedAt   DateTime?
+  comment     String?
+  createdAt   DateTime  @default(now())
+
+  @@unique([aiProjectId, stageOrder])
+}
+
+
+// Phase 7: a deterministic training module generated from a published SOP -- turns its
+// step-by-step procedure and known pain points into a learning outline. Never a real LLM call,
+// same philosophy as sop-template.ts / ai-project-template.ts.
+model TrainingModule {
+  id            String   @id @default(cuid())
+  sopId         String   @unique
+  sop           Sop      @relation(fields: [sopId], references: [id], onDelete: Cascade)
+  title         String
+  contentMd     String
+  status        String   @default("DRAFT") // DRAFT | PUBLISHED
+  generatedById String
+  generatedBy   User     @relation(fields: [generatedById], references: [id])
+  generatedAt   DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// Phase 7: a flagged review or change request against a published SOP -- continuous improvement.
+model ChangeRequest {
+  id             String    @id @default(cuid())
+  sopId          String
+  sop            Sop       @relation(fields: [sopId], references: [id], onDelete: Cascade)
+  summary        String
+  status         String    @default("OPEN") // OPEN | IN_PROGRESS | RESOLVED
+  raisedById     String
+  raisedBy       User      @relation("ChangeRequestRaisedBy", fields: [raisedById], references: [id])
+  resolvedById   String?
+  resolvedBy     User?     @relation("ChangeRequestResolvedBy", fields: [resolvedById], references: [id])
+  resolvedAt     DateTime?
+  resolutionNote String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+// Phase 7: one 30/60/90-day before-vs-after checkpoint against an Agent's baseline RoiEstimate.
+// actual* fields are reviewer-entered (this app has no live usage telemetry to pull from) --
+// recordedAt null means the checkpoint hasn't been measured yet, even if its due date has passed.
+model ImpactMeasurement {
+  id                  String    @id @default(cuid())
+  agentId             String
+  agent               Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  checkpointDays      Int // 30 | 60 | 90
+  actualMonthlyVolume Int?
+  actualHoursSaved    Float?
+  actualSavings       Float?
+  note                String?
+  recordedById        String?
+  recordedBy          User?     @relation(fields: [recordedById], references: [id])
+  recordedAt          DateTime?
+  createdAt           DateTime  @default(now())
+
+  @@unique([agentId, checkpointDays])
+}
+
+// Phase 7: a connector registry entry -- configuration metadata only. This app has no real
+// credentials for Odoo / Analytix360 / email / WhatsApp, so this deliberately never claims a live
+// sync -- it's an honest record of what's configured vs. not, same "never invent" discipline as
+// everywhere else in this app.
+model Integration {
+  id             String    @id @default(cuid())
+  type           String    @unique // ODOO | ANALYTIX360 | EMAIL | WHATSAPP | OTHER
+  name           String
+  status         String    @default("NOT_CONFIGURED") // NOT_CONFIGURED | CONFIGURED
+  endpointOrNote String?
+  configuredById String?
+  configuredBy   User?     @relation(fields: [configuredById], references: [id])
+  configuredAt   DateTime?
+  updatedAt      DateTime  @updatedAt
 }
 
 // ---------------------------------------------------------------------------

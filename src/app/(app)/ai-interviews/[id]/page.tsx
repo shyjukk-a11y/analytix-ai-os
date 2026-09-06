@@ -6,11 +6,13 @@ import { authOptions } from '@/lib/auth';
 import { can } from '@/lib/rbac';
 import { languageOptions, type InterviewState } from '@/lib/interview-engine';
 import { buildResumeAction } from '@/lib/interview-resume';
+import { loadInterviewSuggestions } from '@/lib/interview-suggestions';
 import {
   submitInterviewAnswer,
   resolveInterviewObservation,
   confirmInterviewSummary,
-  requestInterviewCorrection
+  requestInterviewCorrection,
+  changeInterviewLanguage
 } from '@/lib/actions/interviews';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Badge } from '@/components/ui/Badge';
@@ -39,6 +41,7 @@ export default async function InterviewDetailPage({ params }: { params: { id: st
   const lastAiMessage = [...interview.messages].reverse().find((m) => m.sender === 'AI');
   const resumeAction = buildResumeAction(state, lastAiMessage?.text, interview.observations[0]);
   const langName = languageOptions().find((l) => l.code === interview.language)?.name ?? interview.language;
+  const suggestions = isOwner ? await loadInterviewSuggestions(interview.process.projectId) : undefined;
 
   return (
     <div>
@@ -60,6 +63,7 @@ export default async function InterviewDetailPage({ params }: { params: { id: st
         initialMessages={interview.messages.map((m) => ({ id: m.id, sender: m.sender as 'AI' | 'EMPLOYEE', text: m.text }))}
         initialState={state}
         initialAction={resumeAction}
+        suggestions={suggestions}
         readOnly={!isOwner}
         actions={
           isOwner
@@ -67,7 +71,8 @@ export default async function InterviewDetailPage({ params }: { params: { id: st
                 submitAnswer: submitInterviewAnswer,
                 resolveObservation: resolveInterviewObservation,
                 confirmSummary: confirmInterviewSummary,
-                requestCorrection: requestInterviewCorrection
+                requestCorrection: requestInterviewCorrection,
+                changeLanguage: changeInterviewLanguage
               }
             : undefined
         }

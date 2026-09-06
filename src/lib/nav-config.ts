@@ -16,7 +16,7 @@ export type NavModule = {
 // eventual shape of the product.
 export const NAV_MODULES: NavModule[] = [
   { slug: 'dashboard', label: 'Executive Overview', href: '/dashboard', icon: '🏠', phase: 1, implemented: true, description: 'Home dashboard: what has been set up so far.' },
-  { slug: 'control-tower', label: 'Transformation Control Tower', href: '/control-tower', icon: '🛰️', phase: 7, implemented: false, description: 'Group-wide transformation metrics across countries and departments.' },
+  { slug: 'control-tower', label: 'Transformation Control Tower', href: '/control-tower', icon: '🛰️', phase: 7, implemented: true, requires: 'executive.view', description: 'Group-wide transformation metrics across countries and departments.' },
   { slug: 'departments', label: 'Departments', href: '/departments', icon: '🏢', phase: 1, implemented: true, requires: 'setup.manage', description: 'Country / division / department structure and ownership.' },
   { slug: 'projects', label: 'Projects', href: '/projects', icon: '📁', phase: 1, implemented: true, requires: 'setup.manage', description: 'AI transformation project setup and scope.' },
   { slug: 'process-discovery', label: 'Process Discovery', href: '/process-discovery', icon: '🧭', phase: 3, implemented: true, requires: 'interview.review', description: 'Processes identified and their discovery status.' },
@@ -28,14 +28,15 @@ export const NAV_MODULES: NavModule[] = [
   { slug: 'bottlenecks', label: 'Bottlenecks', href: '/bottlenecks', icon: '🚦', phase: 3, implemented: true, requires: 'interview.review', description: 'Detected bottlenecks with evidence and business impact.' },
   { slug: 'ai-opportunities', label: 'AI Opportunities', href: '/ai-opportunities', icon: '💡', phase: 4, implemented: true, requires: 'interview.review', description: 'Scored AI opportunities per process.' },
   { slug: 'ai-projects', label: 'AI Projects', href: '/ai-projects', icon: '🤖', phase: 4, implemented: true, requires: 'interview.review', description: 'Generated AI project proposals and business cases.' },
-  { slug: 'agent-library', label: 'Agent Library', href: '/agent-library', icon: '📚', phase: 5, implemented: false, description: 'Reusable internal AI agent components.' },
-  { slug: 'roi', label: 'ROI / Business Cases', href: '/roi', icon: '📈', phase: 5, implemented: false, description: 'Baseline, projected and simulated ROI per project.' },
-  { slug: 'governance', label: 'Governance', href: '/governance', icon: '⚖️', phase: 6, implemented: false, description: 'Approval workflow stages from process owner to production.' },
-  { slug: 'approvals', label: 'Approvals', href: '/approvals', icon: '✅', phase: 6, implemented: false, description: 'Pending approvals across all governance stages.' },
-  { slug: 'security', label: 'Security', href: '/security', icon: '🔐', phase: 6, implemented: false, description: 'Access, data isolation and AI-usage audit posture.' },
-  { slug: 'training', label: 'Training', href: '/training', icon: '🎓', phase: 7, implemented: false, description: 'Generated training modules from approved SOPs.' },
-  { slug: 'continuous-improvement', label: 'Continuous Improvement', href: '/continuous-improvement', icon: '🔄', phase: 7, implemented: false, description: 'Scheduled SOP review and change requests.' },
-  { slug: 'impact-measurement', label: 'Impact Measurement', href: '/impact-measurement', icon: '📊', phase: 7, implemented: false, description: '30 / 60 / 90 day before-vs-after measurement.' },
-  { slug: 'integrations', label: 'Integrations', href: '/integrations', icon: '🔌', phase: 7, implemented: false, description: 'Odoo, Analytix360, email, WhatsApp and other connections.' },
-  { slug: 'administration', label: 'Administration', href: '/administration', icon: '⚙️', phase: 1, implemented: true, requires: 'admin.manage', description: 'Users, roles and platform configuration.' }
+  { slug: 'agent-library', label: 'Agent Library', href: '/agent-library', icon: '📚', phase: 5, implemented: true, requires: 'interview.review', description: 'Reusable internal AI agent components.' },
+  { slug: 'roi', label: 'ROI / Business Cases', href: '/roi', icon: '📈', phase: 5, implemented: true, requires: 'interview.review', description: 'Baseline, projected and simulated ROI per project.' },
+  { slug: 'governance', label: 'Governance', href: '/governance', icon: '⚖️', phase: 6, implemented: true, requires: 'governance.review', description: 'Approval workflow stages from process owner to production.' },
+  { slug: 'approvals', label: 'Approvals', href: '/approvals', icon: '✅', phase: 6, implemented: true, requires: 'governance.review', description: 'Pending approvals across all governance stages.' },
+  { slug: 'security', label: 'Security', href: '/security', icon: '🔐', phase: 6, implemented: true, requires: 'security.view', description: 'Access, data isolation and AI-usage audit posture.' },
+  { slug: 'training', label: 'Training', href: '/training', icon: '🎓', phase: 7, implemented: true, requires: 'interview.conduct', description: 'Generated training modules from published SOPs.' },
+  { slug: 'continuous-improvement', label: 'Continuous Improvement', href: '/continuous-improvement', icon: '🔄', phase: 7, implemented: true, requires: 'interview.conduct', description: 'Scheduled SOP review and change requests.' },
+  { slug: 'impact-measurement', label: 'Impact Measurement', href: '/impact-measurement', icon: '📊', phase: 7, implemented: true, requires: 'interview.review', description: '30 / 60 / 90 day before-vs-after measurement.' },
+  { slug: 'integrations', label: 'Integrations', href: '/integrations', icon: '🔌', phase: 7, implemented: true, requires: 'admin.manage', description: 'Odoo, Analytix360, email, WhatsApp and other connections.' },
+  { slug: 'administration', label: 'Administration', href: '/administration', icon: '⚙️', phase: 1, implemented: true, requires: 'admin.manage', description: 'Users, roles and platform configuration.' },
+  { slug: 'help', label: 'Help', href: '/help', icon: '❓', phase: 1, implemented: true, description: 'User manual: what every module does and how to use it.' }
 ];

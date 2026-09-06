@@ -27,6 +27,7 @@ export default async function SopDetailPage({ params }: { params: { id: string }
         subtitle={`${process.project.department.name} · ${process.project.name}`}
         actions={
           <>
+            {process.status === 'NEEDS_REVIEW' ? <Badge tone="warning">Needs review</Badge> : null}
             {process.sop ? <Badge tone={process.sop.status === 'PUBLISHED' ? 'success' : 'neutral'}>{process.sop.status}</Badge> : null}
             <Link href="/sop-library" className="self-center text-sm text-brand-blue hover:underline">
               ← SOP Library
@@ -35,12 +36,29 @@ export default async function SopDetailPage({ params }: { params: { id: string }
         }
       />
 
+      {process.status === 'NEEDS_REVIEW' ? (
+        <Card className="mb-4">
+          <CardBody className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-slate-600">
+              Two or more employees described this process differently — resolve the conflicts before generating
+              or updating its SOP.
+            </p>
+            <Link
+              href={`/sop-library/${process.id}/reconcile`}
+              className="whitespace-nowrap rounded-md bg-brand-blue px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90"
+            >
+              Resolve conflicts
+            </Link>
+          </CardBody>
+        </Card>
+      ) : null}
+
       {!process.sop ? (
         <Card>
           <CardBody className="text-center">
             <p className="mb-3 text-sm text-slate-500">No SOP has been generated for this process yet.</p>
             <div className="flex justify-center">
-              <GenerateSopButton processId={process.id} />
+              {process.status === 'NEEDS_REVIEW' ? null : <GenerateSopButton processId={process.id} />}
             </div>
           </CardBody>
         </Card>
@@ -53,7 +71,7 @@ export default async function SopDetailPage({ params }: { params: { id: string }
               </p>
               <div className="flex gap-2">
                 <SopStatusToggle processId={process.id} status={process.sop.status as 'DRAFT' | 'PUBLISHED'} />
-                <GenerateSopButton processId={process.id} label="Regenerate" />
+                {process.status === 'NEEDS_REVIEW' ? null : <GenerateSopButton processId={process.id} label="Regenerate" />}
               </div>
             </CardBody>
           </Card>

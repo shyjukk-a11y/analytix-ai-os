@@ -41,7 +41,14 @@ export default async function SopLibraryPage() {
                   </div>
                 </div>
                 <div className="flex flex-none items-center gap-3">
-                  {p.sop ? (
+                  {p.status === 'NEEDS_REVIEW' ? (
+                    <>
+                      <Badge tone="warning">Needs review</Badge>
+                      <Link href={`/sop-library/${p.id}/reconcile`} className="text-sm text-brand-blue hover:underline">
+                        Resolve
+                      </Link>
+                    </>
+                  ) : p.sop ? (
                     <>
                       <Badge tone={p.sop.status === 'PUBLISHED' ? 'success' : 'neutral'}>{p.sop.status}</Badge>
                       <Link href={`/sop-library/${p.id}`} className="text-sm text-brand-blue hover:underline">

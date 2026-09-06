@@ -15,13 +15,30 @@ async function requireSession() {
   return session;
 }
 
-/** Generate a shareable, no-login-required interview link for a pre-selected staff member. */
-export async function createInterviewInviteLink(projectId: string, employeeId: string, language: Language): Promise<{ id: string; token: string }> {
+/**
+ * Generate a shareable, no-login-required interview link for a pre-selected staff member. If
+ * joinProcessId is given, opening the link attaches the staff member's interview to that existing
+ * Process (another perspective on it) instead of always starting a brand-new one — mirrors
+ * joinProcessId on startInterview for the signed-in flow.
+ */
+export async function createInterviewInviteLink(
+  projectId: string,
+  employeeId: string,
+  language: Language,
+  joinProcessId?: string
+): Promise<{ id: string; token: string }> {
   const session = await requireSession();
   assertCan(session.user.role, 'interview.review');
 
+  if (joinProcessId) {
+    const process = await prisma.process.findUniqueOrThrow({ where: { id: joinProcessId } });
+    if (process.projectId !== projectId) {
+      throw new Error("That process does not belong to the selected project.");
+    }
+  }
+
   const link = await prisma.interviewInviteLink.create({
-    data: { projectId, employeeId, language, createdById: session.user.id }
+    data: { projectId, employeeId, language, createdById: session.user.id, joinProcessId: joinProcessId ?? null }
   });
 
   await writeAuditLog({
@@ -29,7 +46,7 @@ export async function createInterviewInviteLink(projectId: string, employeeId: s
     action: 'interview_link.created',
     entityType: 'InterviewInviteLink',
     entityId: link.id,
-    metadata: { projectId, employeeId, language }
+    metadata: { projectId, employeeId, language, joinProcessId: joinProcessId ?? null }
   });
 
   revalidatePath('/ai-interviews');

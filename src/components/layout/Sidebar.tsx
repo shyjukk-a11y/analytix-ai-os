@@ -7,6 +7,7 @@ import { NAV_MODULES } from '@/lib/nav-config';
 import { can, type Permission, ROLE_LABELS } from '@/lib/rbac';
 import type { Role } from '@/lib/enums';
 import { signOut } from 'next-auth/react';
+import { Tooltip } from '@/components/ui/Tooltip';
 
 export function Sidebar({ userRole, userName }: { userRole: Role; userName: string }) {
   const pathname = usePathname();
@@ -29,22 +30,23 @@ export function Sidebar({ userRole, userName }: { userRole: Role; userName: stri
         {visibleModules.map((mod) => {
           const active = pathname === mod.href || pathname?.startsWith(mod.href + '/');
           return (
-            <Link
-              key={mod.slug}
-              href={mod.implemented ? mod.href : `${mod.href}`}
-              className={clsx(
-                'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
-                active ? 'bg-brand-blue/20 font-semibold text-white' : 'text-slate-300 hover:bg-white/5'
-              )}
-            >
-              <span className="w-5 flex-none text-center">{mod.icon}</span>
-              <span className="flex-1">{mod.label}</span>
-              {!mod.implemented ? (
-                <span className="flex-none rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] text-slate-400">
-                  P{mod.phase}
-                </span>
-              ) : null}
-            </Link>
+            <Tooltip key={mod.slug} text={mod.description} side="right" className="block w-full">
+              <Link
+                href={mod.implemented ? mod.href : `${mod.href}`}
+                className={clsx(
+                  'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
+                  active ? 'bg-brand-blue/20 font-semibold text-white' : 'text-slate-300 hover:bg-white/5'
+                )}
+              >
+                <span className="w-5 flex-none text-center">{mod.icon}</span>
+                <span className="flex-1">{mod.label}</span>
+                {!mod.implemented ? (
+                  <span className="flex-none rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] text-slate-400">
+                    P{mod.phase}
+                  </span>
+                ) : null}
+              </Link>
+            </Tooltip>
           );
         })}
       </nav>

@@ -5,12 +5,14 @@ import { randomUUID } from 'crypto';
 /**
  * Knowledge-source file storage abstraction (spec section 4 / 28).
  *
- * Phase 1 uses local disk so the app runs with zero external dependencies. Swap
- * `LocalDiskKnowledgeStorage` for an S3-compatible implementation later without touching
- * callers — they only depend on the `KnowledgeStorage` interface.
+ * Local disk (`LocalDiskKnowledgeStorage`) is used for zero-install local dev. Production
+ * (Vercel) has no persistent filesystem, so `VercelBlobKnowledgeStorage` is used instead
+ * whenever `BLOB_READ_WRITE_TOKEN` is set (Vercel sets this automatically once Blob storage
+ * is enabled on the project). Callers only depend on the `KnowledgeStorage` interface, so
+ * this swap is transparent to them.
  */
 export interface KnowledgeStorage {
-  /** Persists a file and returns a storage-relative path to save on the KnowledgeSource row. */
+  /** Persists a file and returns a storage-relative path (or URL) to save on the KnowledgeSource row. */
   save(projectId: string, originalFileName: string, buffer: Buffer): Promise<string>;
 }
 
@@ -30,7 +32,28 @@ export class LocalDiskKnowledgeStorage implements KnowledgeStorage {
   }
 }
 
-export const knowledgeStorage: KnowledgeStorage = new LocalDiskKnowledgeStorage();
+export class VercelBlobKnowledgeStorage implements KnowledgeStorage {
+  async save(projectId: string, originalFileName: string, buffer: Buffer): Promise<string> {
+    // Imported lazily so `@vercel/blob` is only required when this class is actually used
+    // (local dev without a blob token never touches this path).
+    const { put } = await import('@vercel/blob');
+
+    const safeName = originalFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const pathname = `knowledge-sources/${projectId}/${randomUUID()}-${safeName}`;
+
+    const blob = await put(pathname, buffer, {
+      access: 'public',
+      addRandomSuffix: false
+    });
+
+    // Store the full blob URL — it's what any future "download source file" feature would need.
+    return blob.url;
+  }
+}
+
+export const knowledgeStorage: KnowledgeStorage = process.env.BLOB_READ_WRITE_TOKEN
+  ? new VercelBlobKnowledgeStorage()
+  : new LocalDiskKnowledgeStorage();
 
 // Allow-list kept intentionally narrow for Phase 1 (spec section 4: "PDF, Word, Excel, images").
 export const ALLOWED_KNOWLEDGE_MIME_TYPES = [

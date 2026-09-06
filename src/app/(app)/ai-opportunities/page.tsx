@@ -8,21 +8,27 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { DepartmentProjectFilter } from '@/components/filters/DepartmentProjectFilter';
+import { loadFilterOptions, relationFilterWhere, type ListFilterParams } from '@/lib/list-filters';
 
 const IMPACT_TONE: Record<string, 'success' | 'brand' | 'neutral'> = { HIGH: 'success', MEDIUM: 'brand', LOW: 'neutral' };
 const EFFORT_TONE: Record<string, 'critical' | 'caution' | 'success'> = { HIGH: 'critical', MEDIUM: 'caution', LOW: 'success' };
 
-export default async function AiOpportunitiesPage() {
+export default async function AiOpportunitiesPage({ searchParams }: { searchParams: ListFilterParams }) {
   const session = await getServerSession(authOptions);
   if (!can(session?.user.role, 'interview.review')) notFound();
 
-  const opportunities = await prisma.aiOpportunity.findMany({
-    include: {
-      process: { include: { project: { include: { department: true } } } },
-      aiProject: true
-    },
-    orderBy: { createdAt: 'desc' }
-  });
+  const [{ departments, projects }, opportunities] = await Promise.all([
+    loadFilterOptions(),
+    prisma.aiOpportunity.findMany({
+      where: { process: relationFilterWhere(searchParams) },
+      include: {
+        process: { include: { project: { include: { department: true } } } },
+        aiProject: true
+      },
+      orderBy: { createdAt: 'desc' }
+    })
+  ]);
 
   const active = opportunities.filter((o) => o.status === 'IDENTIFIED');
   const dismissed = opportunities.filter((o) => o.status === 'DISMISSED');
@@ -52,10 +58,12 @@ export default async function AiOpportunitiesPage() {
         subtitle="Improvement opportunities identified from confirmed AI observations during interviews — scored by evidence, not guesswork."
       />
 
+      <DepartmentProjectFilter departments={departments} projects={projects} />
+
       {active.length === 0 && dismissed.length === 0 ? (
         <EmptyState
           icon="💡"
-          title="No AI opportunities identified yet"
+          title={searchParams.departmentId || searchParams.projectId ? 'No opportunities match this filter' : 'No AI opportunities identified yet'}
           description="Opportunities appear here automatically once an employee confirms an AI-raised observation during their interview."
         />
       ) : (

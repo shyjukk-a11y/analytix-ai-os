@@ -7,7 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { assertCan, can, ForbiddenError } from '@/lib/rbac';
 import { Role } from '@/lib/enums';
 import { writeAuditLog } from '@/lib/audit';
-import { extractProcessFacts } from '@/lib/process-facts';
+import { extractProcessFacts, compareProcessFacts, hasConflicts } from '@/lib/process-facts';
 import { OPPORTUNITY_CONTENT, deriveImpact, deriveEffort } from '@/lib/ai-opportunity-rules';
 import {
   beginInterview,
@@ -15,6 +15,7 @@ import {
   resolveObservation as engineResolveObservation,
   confirmSummary as engineConfirmSummary,
   needCorrection as engineNeedCorrection,
+  t,
   type InterviewState,
   type EngineAction,
   type Language
@@ -229,6 +230,31 @@ async function syncAiOpportunitiesOnCompletion(processId: string, interviewId: s
   }
 }
 
+/**
+ * When a process now has two or more completed interviews, check whether they actually agree on
+ * the fields/steps that end up as one linear narrative in the SOP (see compareProcessFacts). If
+ * they don't, flag the Process NEEDS_REVIEW so sop.ts's generateSop refuses to silently pick one
+ * version over the other — a human reviewer has to resolve it first (resolveProcessConflict).
+ * If they DO agree (or there's still only one completed interview), leave status as COMPLETE.
+ */
+async function checkProcessForConflicts(processId: string): Promise<void> {
+  const completed = await prisma.interview.findMany({
+    where: { processId, status: 'COMPLETED' },
+    include: { employee: true }
+  });
+  if (completed.length < 2) return;
+
+  const entries = completed.map((i) => ({
+    interviewId: i.id,
+    employeeName: i.employee.name,
+    facts: extractProcessFacts(JSON.parse(i.stateJson) as InterviewState)
+  }));
+
+  if (hasConflicts(compareProcessFacts(entries))) {
+    await prisma.process.update({ where: { id: processId }, data: { status: 'NEEDS_REVIEW' } });
+  }
+}
+
 async function persistTurn(params: { interviewId: string; processId: string; state: InterviewState; action: EngineAction }) {
   const { interviewId, processId, state, action } = params;
   await recordActionMessage(interviewId, action);
@@ -269,6 +295,7 @@ async function performTurn(
   if (state.completed) {
     await syncKnowledgeItemsOnCompletion(interview.processId, interviewId, state);
     await syncAiOpportunitiesOnCompletion(interview.processId, interviewId, state);
+    await checkProcessForConflicts(interview.processId);
 
     await writeAuditLog({
       actorId: actor?.userId ?? null,
@@ -287,8 +314,88 @@ async function performTurn(
   return { action, state };
 }
 
+// Mirrors deriveAiOpportunities()'s pendingObs text keys, so a language change can re-render an
+// already-raised (but not yet resolved) AI Observation card in the new language too.
+const OBS_I18N_KEY: Record<string, string> = {
+  duplicateEntry: 'obsDuplicateEntry',
+  docDependency: 'obsDocDependency',
+  knowledgeRisk: 'obsKnowledgeRisk',
+  manualFollowUp: 'obsManualFollowUp',
+  authorityCheck: 'obsAuthorityCheck',
+  bottleneckGeneral: 'obsBottleneckGeneral'
+};
+
+/**
+ * Switch an in-progress interview's language mid-conversation. Unlike performTurn, this is not an
+ * engine turn — it doesn't advance the state machine or count as the employee's answer, it only
+ * updates state.language and, where the currently-pending prompt is a plain question or an AI
+ * Observation card, re-renders that one prompt in the new language via the same t()/i18n lookup
+ * the engine itself uses, so the employee sees an immediate, correctly-translated re-ask. A
+ * summary or the completion message is left exactly as originally shown (both can include the
+ * employee's own free-text answers, which are never machine-translated) — only the language
+ * stored on the interview and the UI's button labels update for those two cases.
+ */
+async function changeLanguageCore(
+  interviewId: string,
+  actor: Actor,
+  language: Language
+): Promise<{ action: EngineAction; state: InterviewState }> {
+  const { state } = await loadInterviewForActor(interviewId, actor);
+  state.language = language;
+
+  let action: EngineAction;
+  let shouldRecordMessage = false;
+
+  if (state.pendingObs.length > 0) {
+    const obs = state.pendingObs[0];
+    const i18nKey = OBS_I18N_KEY[obs.key];
+    const text = i18nKey ? t(language, i18nKey) : obs.text;
+    state.pendingObs = [{ ...obs, text }, ...state.pendingObs.slice(1)];
+    action = { kind: 'observation', observationKey: obs.key, category: obs.category, text };
+    shouldRecordMessage = true;
+  } else if (state.completed) {
+    action = { kind: 'completed', text: t(language, 'completionMsg') };
+  } else if (state.stage === 'summary') {
+    // Ignored by the client for this stage — only state.language (and therefore button labels)
+    // changes; the previously-shown summary bubble is left untouched.
+    action = { kind: 'summary', introText: '', summaryText: '' };
+  } else {
+    const qKey = state.lastQKey || 'qDepartment';
+    action = { kind: 'ai_message', text: t(language, qKey), questionKey: qKey };
+    shouldRecordMessage = true;
+  }
+
+  if (shouldRecordMessage) {
+    await recordActionMessage(interviewId, action);
+  }
+  await prisma.interview.update({ where: { id: interviewId }, data: { stateJson: JSON.stringify(state), language } });
+
+  await writeAuditLog({
+    actorId: actor?.userId ?? null,
+    action: 'interview.language_changed',
+    entityType: 'Interview',
+    entityId: interviewId,
+    metadata: { language }
+  });
+
+  return { action, state };
+}
+
+/** Change the interview's language mid-conversation (signed-in employee). */
+export async function changeInterviewLanguage(interviewId: string, language: Language) {
+  const session = await requireSession();
+  assertCan(session.user.role, 'interview.conduct');
+  return changeLanguageCore(interviewId, { userId: session.user.id, isAdmin: session.user.role === Role.ADMINISTRATOR }, language);
+}
+
 /** Start a brand-new interview (and its Process) for a project, for the signed-in employee themselves. */
-export async function startInterview(projectId: string, language: Language): Promise<string> {
+/**
+ * Start a brand-new interview for a project, for the signed-in employee themselves. If
+ * joinProcessId is given, the interview is attached to that existing Process (a second, third...
+ * perspective on the same process) instead of creating a new one — see checkProcessForConflicts,
+ * which is what actually notices if this new perspective disagrees with the earlier one(s).
+ */
+export async function startInterview(projectId: string, language: Language, joinProcessId?: string): Promise<string> {
   const session = await requireSession();
   assertCan(session.user.role, 'interview.conduct');
 
@@ -297,15 +404,29 @@ export async function startInterview(projectId: string, language: Language): Pro
     include: { department: true }
   });
 
-  const process = await prisma.process.create({
-    data: { projectId, department: project.department.name, createdById: session.user.id }
-  });
+  let processId: string;
+  if (joinProcessId) {
+    const existingProcess = await prisma.process.findUniqueOrThrow({ where: { id: joinProcessId } });
+    if (existingProcess.projectId !== projectId) {
+      throw new Error("That process does not belong to the selected project.");
+    }
+    const inProgress = await prisma.interview.findFirst({
+      where: { processId: joinProcessId, employeeId: session.user.id, status: 'IN_PROGRESS' }
+    });
+    if (inProgress) return inProgress.id;
+    processId = joinProcessId;
+  } else {
+    const process = await prisma.process.create({
+      data: { projectId, department: project.department.name, createdById: session.user.id }
+    });
+    processId = process.id;
+  }
 
   const { state, messages } = beginInterview(language);
 
   const interview = await prisma.interview.create({
     data: {
-      processId: process.id,
+      processId,
       employeeId: session.user.id,
       language,
       stateJson: JSON.stringify(state),
@@ -319,10 +440,10 @@ export async function startInterview(projectId: string, language: Language): Pro
 
   await writeAuditLog({
     actorId: session.user.id,
-    action: 'interview.started',
+    action: joinProcessId ? 'interview.joined_process' : 'interview.started',
     entityType: 'Interview',
     entityId: interview.id,
-    metadata: { projectId, language }
+    metadata: { projectId, language, joinProcessId: joinProcessId ?? null }
   });
 
   revalidatePath('/ai-interviews');
@@ -349,15 +470,21 @@ export async function startInterviewFromInviteLink(token: string): Promise<strin
   });
   if (existing) return existing.id;
 
-  const process = await prisma.process.create({
-    data: { projectId: link.projectId, department: link.project.department.name, createdById: link.createdById }
-  });
+  let processId: string;
+  if (link.joinProcessId) {
+    processId = link.joinProcessId;
+  } else {
+    const process = await prisma.process.create({
+      data: { projectId: link.projectId, department: link.project.department.name, createdById: link.createdById }
+    });
+    processId = process.id;
+  }
 
   const { state, messages } = beginInterview(link.language as Language);
 
   const interview = await prisma.interview.create({
     data: {
-      processId: process.id,
+      processId,
       employeeId: link.employeeId,
       language: link.language,
       stateJson: JSON.stringify(state),
@@ -500,4 +627,9 @@ export async function requestGuestInterviewCorrection(interviewId: string) {
     () => ({ text: 'Requesting a correction.', questionKey: null }),
     (state) => engineNeedCorrection(state)
   );
+}
+
+/** Change the interview's language mid-conversation (guest/invite-link, no session). */
+export async function changeGuestInterviewLanguage(interviewId: string, language: Language) {
+  return changeLanguageCore(interviewId, null, language);
 }

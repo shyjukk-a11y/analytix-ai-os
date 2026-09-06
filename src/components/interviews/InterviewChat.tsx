@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useTransition, useRef, useEffect } from 'react';
-import { getButtonLabels, observationTagLabel, type EngineAction, type InterviewState } from '@/lib/interview-engine';
+import { getButtonLabels, observationTagLabel, languageOptions, type EngineAction, type InterviewState, type Language } from '@/lib/interview-engine';
+import type { InterviewSuggestions } from '@/lib/interview-suggestions';
 import { extractProcessFacts, OBS_STATUS_TONE } from '@/lib/process-facts';
 import { Card, CardHeader, CardBody } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { Textarea } from '@/components/ui/Field';
+import { Textarea, Select } from '@/components/ui/Field';
 
 type ChatMessage = { id: string; sender: 'AI' | 'EMPLOYEE'; text: string };
 
@@ -20,6 +21,17 @@ export type InterviewChatActions = {
   resolveObservation: (interviewId: string, observationKey: string, status: 'confirmed' | 'partly' | 'rejected') => Promise<TurnResult>;
   confirmSummary: (interviewId: string) => Promise<TurnResult>;
   requestCorrection: (interviewId: string) => Promise<TurnResult>;
+  // Optional: not every caller wires this up (yet), so the language switcher only renders when present.
+  changeLanguage?: (interviewId: string, language: Language) => Promise<TurnResult>;
+};
+
+// Maps the four start-of-interview question keys to the matching suggestion list, so a picked
+// chip can be submitted exactly like a typed answer -- see loadInterviewSuggestions.
+const SUGGESTION_QUESTION_KEYS: Record<string, keyof InterviewSuggestions> = {
+  qDepartment: 'departments',
+  qRole: 'roles',
+  qActivities: 'activities',
+  qProcessName: 'processNames'
 };
 
 function actionToText(action: EngineAction): string {
@@ -159,7 +171,8 @@ export function InterviewChat({
   initialState,
   initialAction,
   readOnly,
-  actions
+  actions,
+  suggestions
 }: {
   interviewId: string;
   initialMessages: ChatMessage[];
@@ -169,6 +182,10 @@ export function InterviewChat({
   // Required unless readOnly — enforced at the call sites, not by the type, since a reviewer
   // viewing someone else's interview never needs a set of actions at all.
   actions?: InterviewChatActions;
+  // Optional "pick from these" values for the department/role/activities/process-name questions —
+  // see loadInterviewSuggestions. Undefined (or an empty list for the current question) just means
+  // no chips render; free-text entry always still works.
+  suggestions?: InterviewSuggestions;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [engineState, setEngineState] = useState<InterviewState>(initialState);
@@ -196,8 +213,8 @@ export function InterviewChat({
     setCurrentAction(action);
   }
 
-  function handleSend() {
-    const text = inputText.trim();
+  function handleSend(override?: string) {
+    const text = (override ?? inputText).trim();
     if (!text) return;
     setInputText('');
     setError(null);
@@ -252,12 +269,54 @@ export function InterviewChat({
     });
   }
 
+  function handleLanguageChange(language: Language) {
+    if (!actions?.changeLanguage || language === engineState.language) return;
+    setError(null);
+    startTransition(async () => {
+      try {
+        const { action, state } = await actions.changeLanguage!(interviewId, language);
+        // A plain question or an AI Observation card is re-shown as a fresh bubble, translated;
+        // a summary/completed message stays exactly as originally shown (see changeLanguageCore's
+        // doc comment) — only the language (and therefore button labels) switches for those.
+        if (action.kind === 'ai_message' || action.kind === 'observation') {
+          applyResult(action, state);
+        } else {
+          setEngineState(state);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not change the interview language.');
+      }
+    });
+  }
+
   const obsAction = currentAction.kind === 'observation' ? currentAction : null;
+
+  const currentSuggestions =
+    !readOnly && suggestions && currentAction.kind === 'ai_message' && SUGGESTION_QUESTION_KEYS[currentAction.questionKey]
+      ? suggestions[SUGGESTION_QUESTION_KEYS[currentAction.questionKey]]
+      : [];
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
       <div className="lg:col-span-2">
         <Card className="flex h-[70vh] flex-col">
+          {!readOnly && actions?.changeLanguage ? (
+            <CardHeader className="flex items-center justify-between gap-3 py-2.5">
+              <span className="text-xs font-medium text-slate-500">Language</span>
+              <Select
+                value={engineState.language}
+                disabled={isPending}
+                onChange={(e) => handleLanguageChange(e.target.value as Language)}
+                className="w-auto py-1.5 text-xs"
+              >
+                {languageOptions().map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.name}
+                  </option>
+                ))}
+              </Select>
+            </CardHeader>
+          ) : null}
           <CardBody className="flex-1 space-y-3 overflow-y-auto">
             {messages.map((m) => <Bubble key={m.id} message={m} />)}
             {obsAction ? (
@@ -288,7 +347,23 @@ export function InterviewChat({
           {!readOnly ? (
             <div className="border-t border-surface-border p-4">
               {currentAction.kind === 'ai_message' ? (
-                <div className="flex items-end gap-2">
+                <div>
+                  {currentSuggestions.length > 0 ? (
+                    <div className="mb-2 flex flex-wrap gap-1.5">
+                      {currentSuggestions.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          disabled={isPending}
+                          onClick={() => handleSend(s)}
+                          className="rounded-full border border-brand-bluePale bg-brand-bluePale/40 px-3 py-1 text-xs font-medium text-brand-blue hover:bg-brand-bluePale disabled:opacity-50"
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="flex items-end gap-2">
                   <Textarea
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
@@ -302,9 +377,10 @@ export function InterviewChat({
                     className="min-h-[52px]"
                     disabled={isPending}
                   />
-                  <Button onClick={handleSend} disabled={isPending || !inputText.trim()}>
+                  <Button onClick={() => handleSend()} disabled={isPending || !inputText.trim()}>
                     {isPending ? '…' : 'Send'}
                   </Button>
+                  </div>
                 </div>
               ) : null}
 

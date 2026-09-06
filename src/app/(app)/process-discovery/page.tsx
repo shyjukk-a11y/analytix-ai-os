@@ -8,6 +8,8 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { getProcessDependencySummary } from '@/lib/actions/process-delete';
+import { ProcessDeleteControls } from '@/components/process/ProcessDeleteControls';
 
 export default async function ProcessDiscoveryPage() {
   const session = await getServerSession(authOptions);
@@ -23,6 +25,9 @@ export default async function ProcessDiscoveryPage() {
     },
     orderBy: { updatedAt: 'desc' }
   });
+
+  const dependencySummaries = await Promise.all(processes.map((p) => getProcessDependencySummary(p.id)));
+  const canFullDelete = can(session?.user.role, 'admin.manage');
 
   return (
     <div>
@@ -40,29 +45,32 @@ export default async function ProcessDiscoveryPage() {
       ) : (
         <Card>
           <div className="divide-y divide-surface-border">
-            {processes.map((p) => {
+            {processes.map((p, index) => {
               const hasCompleted = p.interviews.some((i) => i.status === 'COMPLETED');
               const best = p.interviews.reduce((max, i) => Math.max(max, i.completeness), 0);
               const contributors = Array.from(new Set(p.interviews.map((i) => i.employee.name)));
               return (
-                <Link
-                  key={p.id}
-                  href={`/digital-twin/${p.id}`}
-                  className="flex items-center justify-between gap-3 px-5 py-4 hover:bg-surface-muted"
-                >
-                  <div className="min-w-0">
+                <div key={p.id} className="flex items-center justify-between gap-3 px-5 py-4 hover:bg-surface-muted">
+                  <Link href={`/digital-twin/${p.id}`} className="min-w-0 flex-1">
                     <div className="text-sm font-semibold text-navy-950">{p.name || 'Untitled process'}</div>
                     <div className="truncate text-xs text-slate-500">
                       {p.project.department.name} · {p.project.name} · {contributors.join(', ')}
                     </div>
-                  </div>
+                  </Link>
                   <div className="flex flex-none items-center gap-3">
                     <span className="text-xs text-slate-400">
                       {p.interviews.length} interview{p.interviews.length === 1 ? '' : 's'}
                     </span>
                     <Badge tone={hasCompleted ? 'success' : 'brand'}>{hasCompleted ? 'Captured' : `${best}% in progress`}</Badge>
+                    <ProcessDeleteControls
+                      processId={p.id}
+                      summary={dependencySummaries[index]}
+                      canFullDelete={canFullDelete}
+                      canDeleteInterviews={can(session?.user.role, 'interview.review')}
+                      variant="compact"
+                    />
                   </div>
-                </Link>
+                </div>
               );
             })}
           </div>

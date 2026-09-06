@@ -1,4 +1,5 @@
 import type { AuthOptions } from 'next-auth';
+import type { Role } from '@/lib/enums';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
@@ -34,7 +35,11 @@ export const authOptions: AuthOptions = {
           id: user.id,
           name: user.name,
           email: user.email,
-          role: user.role
+          // Prisma stores role as a plain String (SQLite has no native enum) but everywhere else
+          // in the app (assertCan/can, session.user.role) treats it as the Role union declared in
+          // src/types/next-auth.d.ts. Safe to assert here: every row is written through
+          // createUser/seed.ts, both of which only ever store one of the Role enum's values.
+          role: user.role as Role
         };
       }
     })

@@ -26,9 +26,13 @@ export type Permission =
   | 'knowledge.upload'
   | 'executive.view'
   | 'interview.conduct' // start/answer an AI-led interview about your own work
-  | 'interview.review'; // view captured interview results across employees
+  | 'interview.review' // view captured interview results across employees
+  | 'governance.review' // act on / view a governance sign-off stage (Phase 6)
+  | 'security.view'; // view the Security module's access & audit posture (Phase 6)
 
-const PERMISSIONS: Record<Permission, Role[]> = {
+// Exported (not just used internally by can()/assertCan()) so the Security module (Phase 6) can
+// render the actual access matrix rather than re-deriving or duplicating it.
+export const PERMISSIONS: Record<Permission, Role[]> = {
   'setup.manage': ['ADMINISTRATOR', 'DEPARTMENT_HEAD', 'PROCESS_OWNER'],
   'admin.manage': ['ADMINISTRATOR'],
   'knowledge.upload': [
@@ -39,6 +43,16 @@ const PERMISSIONS: Record<Permission, Role[]> = {
     'TECHNOLOGY_TEAM'
   ],
   'executive.view': ['ADMINISTRATOR', 'MANAGEMENT_CEO', 'AI_TRANSFORMATION_COMMITTEE', 'DEPARTMENT_HEAD'],
+  'governance.review': [
+    'ADMINISTRATOR',
+    'PROCESS_OWNER',
+    'DEPARTMENT_HEAD',
+    'LEGAL_COMPLIANCE_REVIEWER',
+    'INFORMATION_SECURITY',
+    'AI_TRANSFORMATION_COMMITTEE',
+    'MANAGEMENT_CEO'
+  ],
+  'security.view': ['ADMINISTRATOR', 'INFORMATION_SECURITY', 'MANAGEMENT_CEO'],
   'interview.conduct': [
     'ADMINISTRATOR',
     'DEPARTMENT_HEAD',

@@ -9,6 +9,7 @@ import { Card, CardBody } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { GenerateAiProjectButton } from '@/components/ai-projects/GenerateAiProjectButton';
 import { AiProjectStatusToggle } from '@/components/ai-projects/AiProjectStatusToggle';
+import { PublishAgentButton } from '@/components/ai-projects/PublishAgentButton';
 
 export default async function AiProjectDetailPage({ params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
@@ -20,7 +21,7 @@ export default async function AiProjectDetailPage({ params }: { params: { id: st
     where: { id: params.id },
     include: {
       process: { include: { project: { include: { department: true } } } },
-      aiProject: { include: { generatedBy: true } }
+      aiProject: { include: { generatedBy: true, agent: true } }
     }
   });
   if (!opportunity) notFound();
@@ -61,6 +62,26 @@ export default async function AiProjectDetailPage({ params }: { params: { id: st
               <div className="flex gap-2">
                 <AiProjectStatusToggle opportunityId={opportunity.id} status={opportunity.aiProject.status as 'DRAFT' | 'PROPOSED'} />
                 <GenerateAiProjectButton opportunityId={opportunity.id} label="Regenerate" />
+                {opportunity.aiProject.status === 'PROPOSED' ? (
+                  opportunity.aiProject.agent ? (
+                    <Link
+                      href={`/agent-library/${opportunity.aiProject.agent.id}`}
+                      className="inline-flex items-center rounded-lg border border-surface-border px-3 py-1.5 text-sm text-brand-blue hover:bg-brand-bluePale"
+                    >
+                      View in Agent Library
+                    </Link>
+                  ) : (
+                    <PublishAgentButton opportunityId={opportunity.id} />
+                  )
+                ) : null}
+                {opportunity.aiProject.status === 'PROPOSED' ? (
+                  <Link
+                    href={`/governance/${opportunity.id}`}
+                    className="inline-flex items-center rounded-lg border border-surface-border px-3 py-1.5 text-sm text-brand-blue hover:bg-brand-bluePale"
+                  >
+                    Governance review
+                  </Link>
+                ) : null}
               </div>
             </CardBody>
           </Card>

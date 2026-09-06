@@ -9,19 +9,24 @@ import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { GenerateAiProjectButton } from '@/components/ai-projects/GenerateAiProjectButton';
+import { DepartmentProjectFilter } from '@/components/filters/DepartmentProjectFilter';
+import { loadFilterOptions, relationFilterWhere, type ListFilterParams } from '@/lib/list-filters';
 
-export default async function AiProjectsPage() {
+export default async function AiProjectsPage({ searchParams }: { searchParams: ListFilterParams }) {
   const session = await getServerSession(authOptions);
   if (!can(session?.user.role, 'interview.review')) notFound();
 
-  const opportunities = await prisma.aiOpportunity.findMany({
-    where: { status: 'IDENTIFIED' },
-    include: {
-      process: { include: { project: { include: { department: true } } } },
-      aiProject: true
-    },
-    orderBy: { createdAt: 'desc' }
-  });
+  const [{ departments, projects }, opportunities] = await Promise.all([
+    loadFilterOptions(),
+    prisma.aiOpportunity.findMany({
+      where: { status: 'IDENTIFIED', process: relationFilterWhere(searchParams) },
+      include: {
+        process: { include: { project: { include: { department: true } } } },
+        aiProject: true
+      },
+      orderBy: { createdAt: 'desc' }
+    })
+  ]);
 
   return (
     <div>
@@ -30,10 +35,12 @@ export default async function AiProjectsPage() {
         subtitle="Deterministic business-case proposals generated from confirmed AI opportunities — draft until reviewed."
       />
 
+      <DepartmentProjectFilter departments={departments} projects={projects} />
+
       {opportunities.length === 0 ? (
         <EmptyState
           icon="🤖"
-          title="No AI opportunities to propose yet"
+          title={searchParams.departmentId || searchParams.projectId ? 'No opportunities match this filter' : 'No AI opportunities to propose yet'}
           description="Generate an AI project proposal once an opportunity has been identified from a completed interview."
         />
       ) : (

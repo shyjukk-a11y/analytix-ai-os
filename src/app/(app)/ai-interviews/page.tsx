@@ -10,6 +10,8 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { StartInterviewForm } from '@/components/interviews/StartInterviewForm';
 import { InviteLinksPanel } from '@/components/interviews/InviteLinksPanel';
 import { DeleteInterviewButton } from '@/components/interviews/DeleteInterviewButton';
+import { DepartmentProjectFilter } from '@/components/filters/DepartmentProjectFilter';
+import { loadFilterOptions, relationFilterWhere, type ListFilterParams } from '@/lib/list-filters';
 import Link from 'next/link';
 
 const STATUS_TONE: Record<string, 'neutral' | 'success' | 'brand'> = {
@@ -41,12 +43,13 @@ function InterviewRow({ interview, showEmployee }: { interview: any; showEmploye
   );
 }
 
-export default async function AiInterviewsPage() {
+export default async function AiInterviewsPage({ searchParams }: { searchParams: ListFilterParams }) {
   const session = await getServerSession(authOptions);
   const canReview = can(session?.user.role, 'interview.review');
+  const processFilter = relationFilterWhere(searchParams);
 
-  const [projects, myInterviews, allInterviews, departments, staff, inviteLinks] = await Promise.all([
-    prisma.aiTransformationProject.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true, departmentId: true } }),
+  const [{ departments: filterDepartments, projects: filterProjects }, myInterviews, allInterviews, departments, staff, inviteLinks, allProcesses] = await Promise.all([
+    loadFilterOptions(),
     prisma.interview.findMany({
       where: { employeeId: session!.user.id },
       include: { process: { include: { project: true } } },
@@ -54,6 +57,7 @@ export default async function AiInterviewsPage() {
     }),
     canReview
       ? prisma.interview.findMany({
+          where: { process: processFilter },
           include: { process: { include: { project: true } }, employee: true },
           orderBy: { startedAt: 'desc' }
         })
@@ -69,8 +73,10 @@ export default async function AiInterviewsPage() {
           include: { project: true, employee: true, createdBy: true, _count: { select: { interviews: true } } },
           orderBy: { createdAt: 'desc' }
         })
-      : Promise.resolve([])
+      : Promise.resolve([]),
+    prisma.process.findMany({ select: { id: true, name: true, projectId: true } })
   ]);
+  const projects = filterProjects;
 
   return (
     <div>
@@ -87,7 +93,7 @@ export default async function AiInterviewsPage() {
               Create a project first — an interview always belongs to a project's discovery scope.
             </p>
           ) : (
-            <StartInterviewForm projects={projects} languages={languageOptions()} />
+            <StartInterviewForm projects={projects} languages={languageOptions()} processes={allProcesses} />
           )}
         </div>
       </Card>
@@ -105,6 +111,7 @@ export default async function AiInterviewsPage() {
               projects={projects}
               staff={staff as { id: string; name: string; role: string }[]}
               languages={languageOptions()}
+              processes={allProcesses}
               initialLinks={(inviteLinks as any[]).map((l) => ({
                 id: l.id,
                 token: l.token,
@@ -138,8 +145,12 @@ export default async function AiInterviewsPage() {
       {canReview ? (
         <div>
           <h2 className="mb-3 text-sm font-semibold text-navy-950">All interviews (review)</h2>
+          <DepartmentProjectFilter departments={filterDepartments} projects={filterProjects} />
           {allInterviews.length === 0 ? (
-            <EmptyState icon="🗂️" title="No interviews captured yet across the organization" />
+            <EmptyState
+              icon="🗂️"
+              title={searchParams.departmentId || searchParams.projectId ? 'No interviews match this filter' : 'No interviews captured yet across the organization'}
+            />
           ) : (
             <Card>
               <div className="divide-y divide-surface-border">

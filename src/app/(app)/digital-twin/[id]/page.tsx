@@ -9,6 +9,8 @@ import type { InterviewState } from '@/lib/interview-engine';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader, CardBody } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
+import { getProcessDependencySummary } from '@/lib/actions/process-delete';
+import { ProcessDeleteControls } from '@/components/process/ProcessDeleteControls';
 
 function Field({ label, value }: { label: string; value: string | null }) {
   return (
@@ -36,6 +38,7 @@ export default async function DigitalTwinDetailPage({ params }: { params: { id: 
   const state = JSON.parse(primary.stateJson) as InterviewState;
   const facts = extractProcessFacts(state);
   const others = process.interviews.filter((i) => i.id !== primary.id);
+  const dependencySummary = await getProcessDependencySummary(process.id);
 
   return (
     <div>
@@ -47,6 +50,13 @@ export default async function DigitalTwinDetailPage({ params }: { params: { id: 
             <Badge tone={primary.status === 'COMPLETED' ? 'success' : 'brand'}>
               {primary.status === 'COMPLETED' ? 'Captured' : `${facts.completeness}% captured`}
             </Badge>
+            <ProcessDeleteControls
+              processId={process.id}
+              summary={dependencySummary}
+              canFullDelete={can(session?.user.role, 'admin.manage')}
+              canDeleteInterviews={can(session?.user.role, 'interview.review')}
+              afterFullDeleteHref="/digital-twin"
+            />
             <Link href="/digital-twin" className="self-center text-sm text-brand-blue hover:underline">
               ← All processes
             </Link>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import { createInterviewInviteLink, revokeInterviewInviteLink } from '@/lib/actions/interview-links';
 import type { Language } from '@/lib/interview-engine';
 import { Button } from '@/components/ui/Button';
@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/Badge';
 
 type Department = { id: string; name: string };
 type Project = { id: string; name: string; departmentId: string };
+type ProcessOption = { id: string; name: string | null; projectId: string };
 type Staff = { id: string; name: string; role: string };
 
 type InviteLink = {
@@ -58,12 +59,14 @@ export function InviteLinksPanel({
   projects,
   staff,
   languages,
+  processes,
   initialLinks
 }: {
   departments: Department[];
   projects: Project[];
   staff: Staff[];
   languages: { code: Language; name: string }[];
+  processes: ProcessOption[];
   initialLinks: InviteLink[];
 }) {
   const [departmentId, setDepartmentId] = useState(departments[0]?.id ?? '');
@@ -71,6 +74,12 @@ export function InviteLinksPanel({
   const [projectId, setProjectId] = useState(projectsInDept[0]?.id ?? '');
   const [employeeId, setEmployeeId] = useState(staff[0]?.id ?? '');
   const [language, setLanguage] = useState<Language>('en');
+  const [joinProcessId, setJoinProcessId] = useState('');
+  const processesForProject = processes.filter((p) => p.projectId === projectId);
+
+  useEffect(() => {
+    setJoinProcessId('');
+  }, [projectId]);
   const [links, setLinks] = useState(initialLinks);
   const [newToken, setNewToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +101,7 @@ export function InviteLinksPanel({
     }
     startTransition(async () => {
       try {
-        const { id, token } = await createInterviewInviteLink(projectId, employeeId, language);
+        const { id, token } = await createInterviewInviteLink(projectId, employeeId, language, joinProcessId || undefined);
         const project = projects.find((p) => p.id === projectId);
         const employee = staff.find((s) => s.id === employeeId);
         setLinks((prev) => [
@@ -175,6 +184,21 @@ export function InviteLinksPanel({
               </Select>
             </div>
           </FormRow>
+          {processesForProject.length > 0 ? (
+            <FormRow>
+              <div>
+                <Label htmlFor="linkJoinProcess" hint="Choose this if the link is for a second opinion on a process someone already described.">
+                  What should they describe?
+                </Label>
+                <Select id="linkJoinProcess" value={joinProcessId} onChange={(e) => setJoinProcessId(e.target.value)}>
+                  <option value="">A new process</option>
+                  {processesForProject.map((p) => (
+                    <option key={p.id} value={p.id}>Another perspective on: {p.name || 'Untitled process'}</option>
+                  ))}
+                </Select>
+              </div>
+            </FormRow>
+          ) : null}
           <div className="flex items-center gap-3">
             <Button type="submit" disabled={isPending || !projectId || !employeeId}>
               {isPending ? 'Generating…' : '🔗 Generate Link'}

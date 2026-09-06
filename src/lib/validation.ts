@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Role } from './enums';
 
 export const departmentFormSchema = z.object({
   countryName: z.string().min(1, 'Country is required'),
@@ -36,3 +37,15 @@ export const projectFormSchema = z.object({
   existingAiTools: z.string().optional()
 });
 export type ProjectFormInput = z.infer<typeof projectFormSchema>;
+
+// Every Role value, typed as the non-empty tuple z.enum() requires.
+const ROLE_VALUES = Object.values(Role) as [string, ...string[]];
+
+export const userFormSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  email: z.string().trim().toLowerCase().email('Enter a valid email address'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  role: z.enum(ROLE_VALUES, { errorMap: () => ({ message: 'Select a valid role' }) }),
+  jobTitle: z.string().optional()
+});
+export type UserFormInput = z.infer<typeof userFormSchema>;

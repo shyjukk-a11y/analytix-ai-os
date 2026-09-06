@@ -37,6 +37,11 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
 
   if (!project) notFound();
 
+  const processes = await prisma.process.findMany({
+    where: { projectId: project.id },
+    select: { id: true, name: true, projectId: true }
+  });
+
   return (
     <div>
       <PageHeader
@@ -95,7 +100,7 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
             <CardHeader><h2 className="text-sm font-semibold text-navy-950">AI Interview</h2></CardHeader>
             <CardBody>
               {can(session?.user.role, 'interview.conduct') ? (
-                <StartInterviewForm projects={[{ id: project.id, name: project.name }]} languages={languageOptions()} />
+                <StartInterviewForm projects={[{ id: project.id, name: project.name }]} languages={languageOptions()} processes={processes} />
               ) : (
                 <p className="text-sm text-slate-500">You do not have permission to conduct interviews.</p>
               )}
