@@ -147,6 +147,35 @@ function FactsPanel({ state }: { state: InterviewState }) {
           </div>
         ) : null}
 
+        {facts.llmNotes &&
+        (facts.llmNotes.gaps.length || facts.llmNotes.contradictions.length || facts.llmNotes.otherProcesses.length) ? (
+          <div>
+            <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">AI notes for the reviewer</div>
+            {facts.llmNotes.contradictions.length ? (
+              <div className="mb-2">
+                <div className="text-xs font-medium text-status-critical">Possible contradictions</div>
+                <ul className="list-disc space-y-1 pl-4 text-slate-600">
+                  {facts.llmNotes.contradictions.map((c, i) => <li key={i}>{c}</li>)}
+                </ul>
+              </div>
+            ) : null}
+            {facts.llmNotes.gaps.length ? (
+              <div className="mb-2">
+                <div className="text-xs font-medium text-slate-500">Still missing</div>
+                <ul className="list-disc space-y-1 pl-4 text-slate-600">
+                  {facts.llmNotes.gaps.map((g, i) => <li key={i}>{g}</li>)}
+                </ul>
+              </div>
+            ) : null}
+            {facts.llmNotes.otherProcesses.length ? (
+              <div className="text-slate-600">
+                <span className="text-xs font-medium text-slate-500">Also mentioned (separate interviews): </span>
+                {facts.llmNotes.otherProcesses.join(', ')}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <div>
           <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Coverage by dimension</div>
           <div className="space-y-1.5">
@@ -319,6 +348,11 @@ export function InterviewChat({
           ) : null}
           <CardBody className="flex-1 space-y-3 overflow-y-auto">
             {messages.map((m) => <Bubble key={m.id} message={m} />)}
+            {isPending ? (
+              <div className="flex justify-start">
+                <div className="rounded-2xl bg-surface-muted px-4 py-2.5 text-sm text-slate-400">Alex is typing…</div>
+              </div>
+            ) : null}
             {obsAction ? (
               <div className="flex justify-start">
                 <div className="max-w-[80%] rounded-2xl border border-surface-border bg-white px-4 py-3">

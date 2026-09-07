@@ -17,9 +17,12 @@ import {
   needCorrection as engineNeedCorrection,
   t,
   type InterviewState,
+  type InterviewContext,
   type EngineAction,
   type Language
 } from '@/lib/interview-engine';
+import { isLlmEnabled } from '@/lib/llm/provider';
+import { runInterviewerTurn } from '@/lib/llm/interviewer';
 
 // Server actions for Phase 2 (AI Interviews — capture only). These wrap the deterministic,
 // rule-based engine in src/lib/interview-engine.ts: the engine owns all interview logic and
@@ -60,6 +63,39 @@ const OBSERVATION_CATEGORY: Record<string, string> = {
 };
 
 type Actor = { userId: string; isAdmin: boolean } | null;
+
+/**
+ * Assemble the structured context the AI interviewer is grounded in — the department, the
+ * project's Section-4 setup, and the employee's identity — all of which the app already holds
+ * before a single question is asked. Returns null if the LLM path is off (so callers fall back
+ * to the rule engine's generic opener).
+ */
+async function buildInterviewContext(projectId: string, employeeId: string): Promise<InterviewContext | null> {
+  if (!isLlmEnabled()) return null;
+  const [project, employee] = await Promise.all([
+    prisma.aiTransformationProject.findUnique({ where: { id: projectId }, include: { department: true } }),
+    prisma.user.findUnique({ where: { id: employeeId } })
+  ]);
+  if (!project || !employee) return null;
+  return {
+    employeeName: employee.name,
+    employeeJobTitle: employee.jobTitle ?? null,
+    departmentName: project.department.name,
+    serviceArea: project.department.serviceArea ?? null,
+    projectName: project.name,
+    projectDescription: project.description ?? null,
+    interviewObjective: project.interviewObjective ?? null,
+    businessObjective: project.businessObjective ?? null,
+    inScopeActivities: project.inScopeActivities ?? null,
+    outOfScopeActivities: project.outOfScopeActivities ?? null,
+    currentSystems: project.currentSystems ?? null,
+    existingPainPoints: project.existingPainPoints ?? null,
+    mandatoryChecks: project.mandatoryChecks ?? null,
+    mandatoryApprovals: project.mandatoryApprovals ?? null,
+    currentVolume: project.currentVolume ?? null,
+    currentManpower: project.currentManpower ?? null
+  };
+}
 
 async function requireSession() {
   const session = await getServerSession(authOptions);
@@ -281,7 +317,7 @@ async function performTurn(
   interviewId: string,
   actor: Actor,
   buildEmployeeMessage: (state: InterviewState) => { text: string; questionKey: string | null },
-  run: (state: InterviewState) => EngineAction
+  run: (state: InterviewState) => EngineAction | Promise<EngineAction>
 ): Promise<{ action: EngineAction; state: InterviewState }> {
   const { interview, state } = await loadInterviewForActor(interviewId, actor);
   if (state.completed) throw new Error('This interview is already completed.');
@@ -289,7 +325,7 @@ async function performTurn(
   const { text, questionKey } = buildEmployeeMessage(state);
   await prisma.interviewMessage.create({ data: { interviewId, sender: 'EMPLOYEE', questionKey, text } });
 
-  const action = run(state);
+  const action = await run(state);
   await persistTurn({ interviewId, processId: interview.processId, state, action });
 
   if (state.completed) {
@@ -355,9 +391,10 @@ async function changeLanguageCore(
     shouldRecordMessage = true;
   } else if (state.completed) {
     action = { kind: 'completed', text: t(language, 'completionMsg') };
-  } else if (state.stage === 'summary') {
-    // Ignored by the client for this stage — only state.language (and therefore button labels)
-    // changes; the previously-shown summary bubble is left untouched.
+  } else if (state.stage === 'summary' || state.stage === 'llm') {
+    // Ignored by the client for these stages — only state.language (and button labels) changes.
+    // For an AI interview the previously-shown message stays put; the model picks up the new
+    // language on the next turn (it's told the language in its prompt).
     action = { kind: 'summary', introText: '', summaryText: '' };
   } else {
     const qKey = state.lastQKey || 'qDepartment';
@@ -422,7 +459,8 @@ export async function startInterview(projectId: string, language: Language, join
     processId = process.id;
   }
 
-  const { state, messages } = beginInterview(language);
+  const context = await buildInterviewContext(projectId, session.user.id);
+  const { state, messages } = beginInterview(language, { context, aiOpener: !!context });
 
   const interview = await prisma.interview.create({
     data: {
@@ -480,7 +518,8 @@ export async function startInterviewFromInviteLink(token: string): Promise<strin
     processId = process.id;
   }
 
-  const { state, messages } = beginInterview(link.language as Language);
+  const context = await buildInterviewContext(link.projectId, link.employeeId);
+  const { state, messages } = beginInterview(link.language as Language, { context, aiOpener: !!context });
 
   const interview = await prisma.interview.create({
     data: {
@@ -508,6 +547,15 @@ export async function startInterviewFromInviteLink(token: string): Promise<strin
   return interview.id;
 }
 
+/**
+ * Pick the turn engine for a free-text answer: the AI interviewer when it's switched on and this
+ * interview was started with grounding context, otherwise the deterministic rule engine.
+ */
+function answerRunner(text: string) {
+  return (state: InterviewState): EngineAction | Promise<EngineAction> =>
+    isLlmEnabled() && state.context ? runInterviewerTurn(state, text) : engineSubmitAnswer(state, text);
+}
+
 /** Submit the employee's free-text answer to the current question (signed-in employee). */
 export async function submitInterviewAnswer(interviewId: string, text: string) {
   const session = await requireSession();
@@ -516,7 +564,7 @@ export async function submitInterviewAnswer(interviewId: string, text: string) {
     interviewId,
     { userId: session.user.id, isAdmin: session.user.role === Role.ADMINISTRATOR },
     (state) => ({ text, questionKey: state.lastQKey }),
-    (state) => engineSubmitAnswer(state, text)
+    answerRunner(text)
   );
 }
 
@@ -597,7 +645,7 @@ export async function submitGuestInterviewAnswer(interviewId: string, text: stri
     interviewId,
     null,
     (state) => ({ text, questionKey: state.lastQKey }),
-    (state) => engineSubmitAnswer(state, text)
+    answerRunner(text)
   );
 }
 

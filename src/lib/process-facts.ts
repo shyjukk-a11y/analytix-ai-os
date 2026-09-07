@@ -69,6 +69,8 @@ export type ProcessFacts = {
   aiObservations: { text: string; status: string; key: string }[];
   dims: { key: DimKey; label: string; value: number }[];
   completeness: number;
+  // Present only for AI-interviewer interviews: the model's open questions for a human reviewer.
+  llmNotes: { gaps: string[]; contradictions: string[]; otherProcesses: string[] } | null;
 };
 
 /**
@@ -105,7 +107,8 @@ export function extractProcessFacts(state: InterviewState): ProcessFacts {
     templates: state.templates,
     aiObservations: state.aiObservations,
     dims,
-    completeness: state.completeness
+    completeness: state.completeness,
+    llmNotes: state.llmNotes ?? null
   };
 }
 

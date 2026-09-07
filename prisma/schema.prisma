@@ -1,23 +1,26 @@
 // Analytix AI Business Transformation OS — Data Model
 //
-// PHASE 1 + 2 (active): org structure, auth/RBAC, project setup, knowledge sources, audit log,
-// and AI-led employee interviews (Process/Interview/InterviewMessage/InterviewStepRecord/
-// InterviewObservation). Everything below the "PHASE 2+ ROADMAP" divider is intentionally NOT
-// migrated yet — it documents the target data model from the product spec so later phases extend
-// this schema instead of inventing a parallel one. Uncomment/adapt model-by-model as each phase
-// is built.
+// PHASES 1–7 — ALL ACTIVE. 25 models, grouped below by the phase that introduced them:
+// Foundation (org structure, auth/RBAC, project setup, knowledge sources, audit log),
+// AI Interviews, Process Digital Twin / SOP Library / Knowledge Base, AI Opportunities &
+// AI Projects, Agents / ROI / Governance, and Training / Continuous Improvement / Impact
+// Measurement / Integrations. Full reference: TECHNICAL_DOCUMENT.md §4.
+//
+// The commented block below the "FUTURE SCHEMA" divider at the end of this file is NOT built —
+// it documents fuller spec-model shapes (process-step normalization, SOP/knowledge versioning,
+// formal Risk / Approval entities, separate metric tables) so later work extends this schema
+// toward them instead of inventing a parallel one.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  // Postgres (production). Run `npx prisma migrate dev --name init` once against your
-  // real Postgres connection string to generate a fresh baseline migration (the old
-  // SQLite-dialect migrations were removed since their SQL isn't valid on Postgres),
-  // then `npx prisma migrate deploy` for subsequent environments.
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // Postgres (Neon). DATABASE_URL is the connection the app uses; DIRECT_URL is the
+  // non-pooled connection `prisma migrate` uses. Both are in .env. See TECHNICAL_DOCUMENT.md §8.
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ---------------------------------------------------------------------------
@@ -538,7 +541,7 @@ model Integration {
 }
 
 // ---------------------------------------------------------------------------
-// PHASE 2+ ROADMAP (not migrated — documentation of target schema; see README)
+// FUTURE SCHEMA — spec models NOT built yet (target shapes from the product spec)
 // ---------------------------------------------------------------------------
 //
 // model Process { ... }
@@ -561,16 +564,17 @@ model Integration {
 // model SopVersion { id, sopId, version, changedBy, changeSummary, approvedBy, effectiveDate }
 //
 // AiOpportunity / AiProject — implemented in Phase 4 above, in a pragmatic shape (no formal
-// scoring model, ROI figures, or MVP phasing yet — those remain future work described here).
+// scoring model or MVP phasing yet — that remains future work described here).
+//
+// Agent / RoiEstimate / GovernanceStage — implemented in Phases 5–6 above (pragmatic shape).
+// TrainingModule / ChangeRequest / ImpactMeasurement / Integration — implemented in Phase 7
+// above (pragmatic shape; Integration is a config registry only, no live sync). The fuller
+// spec entities these stand in for, still unbuilt:
 // model AiAgent { id, name, purpose, departments[], countries[], connectedSystems[],
 //   owner, version, securityClassification, cost, usage, kpi, productionStatus }
-//
 // model Approval { id, projectId, stage /* governance workflow step, spec section 39 */,
 //   approverId, decision, comment, decidedAt }
 // model Risk { id, projectId, category, description, severity, mitigation, owner, status }
-// model Integration { id, name, type /* odoo | analytix360 | email | whatsapp | crm | hr | ... */,
-//   config, status }
-//
 // model BaselineMetric { id, projectId, metric, value, unit, measuredAt, source }
 // model TargetMetric { id, projectId, metric, targetValue, unit }
 // model ActualMetric { id, projectId, metric, value, unit, measuredAt, window /* 30/60/90 */ }

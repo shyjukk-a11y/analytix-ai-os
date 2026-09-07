@@ -39,6 +39,28 @@ export type DimKey =
   | 'aiOpp'
   | 'kpis';
 
+// Structured context the app already holds when an interview starts (department, project setup,
+// employee identity). Passed to the AI interviewer so it can skip re-asking the basics and
+// probe against what's already known. Null for rule-engine interviews.
+export type InterviewContext = {
+  employeeName: string;
+  employeeJobTitle: string | null;
+  departmentName: string;
+  serviceArea: string | null;
+  projectName: string;
+  projectDescription: string | null;
+  interviewObjective: string | null;
+  businessObjective: string | null;
+  inScopeActivities: string | null;
+  outOfScopeActivities: string | null;
+  currentSystems: string | null;
+  existingPainPoints: string | null;
+  mandatoryChecks: string | null;
+  mandatoryApprovals: string | null;
+  currentVolume: string | null;
+  currentManpower: string | null;
+};
+
 export type InterviewState = {
   language: Language;
   stage: string;
@@ -47,6 +69,11 @@ export type InterviewState = {
   duplicateAsked: boolean;
   pendingClar: string[];
   pendingObs: PendingObservation[];
+
+  // Populated only for AI-interviewer interviews (src/lib/llm/interviewer.ts); null/empty otherwise.
+  context?: InterviewContext | null;
+  llmHistory?: { role: 'user' | 'assistant'; content: string }[];
+  llmNotes?: { gaps: string[]; contradictions: string[]; otherProcesses: string[] } | null;
 
   department: string | null;
   role: string | null;
@@ -526,7 +553,7 @@ export function extractSystems(text: string): string[] {
 /* ============================================================
    State factory
    ============================================================ */
-const DIM_KEYS: DimKey[] = [
+export const DIM_KEYS: DimKey[] = [
   'start',
   'workflow',
   'roles',
@@ -539,7 +566,7 @@ const DIM_KEYS: DimKey[] = [
   'kpis'
 ];
 
-export function newInterviewState(language: Language): InterviewState {
+export function newInterviewState(language: Language, context: InterviewContext | null = null): InterviewState {
   return {
     language,
     stage: 'department',
@@ -548,6 +575,10 @@ export function newInterviewState(language: Language): InterviewState {
     duplicateAsked: false,
     pendingClar: [],
     pendingObs: [],
+
+    context,
+    llmHistory: [],
+    llmNotes: null,
 
     department: null,
     role: null,
@@ -612,8 +643,40 @@ function computeCompleteness(state: InterviewState): number {
 /* ============================================================
    Begin interview
    ============================================================ */
-export function beginInterview(language: Language): { state: InterviewState; messages: EngineAction[] } {
-  const state = newInterviewState(language);
+/** Deterministic, no-model-call opening message for an AI-interviewer interview. */
+export function buildAiOpener(ctx: InterviewContext): string {
+  const scope = (ctx.inScopeActivities ?? '')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join(', ');
+  const parts = [
+    `Hi ${ctx.employeeName}. I can see you're in ${ctx.departmentName}${ctx.employeeJobTitle ? `, working as ${ctx.employeeJobTitle}` : ''}, and this is about "${ctx.projectName}".`,
+    ``,
+    `I want to understand how you personally do this work today — step by step, in your own words. There's no need to prepare anything.`
+  ];
+  if (scope) parts.push(``, `The area we're looking at covers: ${scope}.`);
+  parts.push(``, `To start: which of these do you handle yourself, and which one should we walk through first?`);
+  return parts.join('\n');
+}
+
+export function beginInterview(
+  language: Language,
+  opts: { context?: InterviewContext | null; aiOpener?: boolean } = {}
+): { state: InterviewState; messages: EngineAction[] } {
+  const context = opts.context ?? null;
+  const state = newInterviewState(language, context);
+
+  // AI-interviewer mode: one deterministic, context-grounded greeting (no model call yet), then
+  // every following turn runs through src/lib/llm/interviewer.ts.
+  if (opts.aiOpener && context) {
+    const opener = buildAiOpener(context);
+    state.stage = 'llm';
+    state.lastQKey = 'llmOpener';
+    state.llmHistory = [{ role: 'assistant', content: opener }];
+    return { state, messages: [{ kind: 'ai_message', text: opener, questionKey: 'llmOpener' }] };
+  }
+
   const intro: EngineAction = { kind: 'ai_message', text: t(language, 'intro'), questionKey: '__intro__' };
   const firstQuestion = askQ(state, 'qDepartment', 'department');
   return { state, messages: [intro, firstQuestion] };
@@ -871,7 +934,7 @@ function buildSummaryText(state: InterviewState): string {
   return txt;
 }
 
-function buildSummaryAction(state: InterviewState): EngineAction {
+export function buildSummaryAction(state: InterviewState): EngineAction {
   return {
     kind: 'summary',
     introText: t(state.language, 'summaryIntro'),

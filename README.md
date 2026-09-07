@@ -2,45 +2,78 @@
 
 **Discover Work → Capture Knowledge → Improve Processes → Build AI → Measure Impact**
 
-This is Phase 1 (Foundation) of the platform described in the product spec: authentication,
-RBAC, org structure (country/division/department), AI transformation project setup, and
-knowledge-source file storage. Every other module in the sidebar is a labeled placeholder for
-its planned phase so the full intended navigation is visible from day one.
+Analytix AI Business Transformation OS runs an organization's AI transformation program end to
+end: capturing how work is done today through structured, multilingual AI-led staff interviews,
+turning that into SOPs, a searchable knowledge base and process maps, identifying AI
+opportunities, building ROI-backed business cases, running them through a formal governance
+sign-off chain, publishing reusable AI agents, and then training staff and measuring real
+impact after go-live.
 
-## Important: you need to run `npm install` yourself
+All **24 modules across all 7 build phases are implemented**, and the app runs locally on
+SQLite. `TECHNICAL_DOCUMENT.md` is the authoritative technical reference — architecture, data
+model, every module, roles, workflows, hosting. Read it alongside this file; where the two
+disagree, trust the technical document.
 
-This codebase was written by Claude in a sandboxed session that had **no access to the npm
-registry** (or any other package host) — so none of it has been through `npm install`,
-`next build`, or a TypeScript compile. It was written carefully, file by file, against known-good
-Next.js 14 / Prisma 5 / NextAuth 4 patterns, but you are the first real compile it will see.
+A design principle runs through the whole codebase: **nothing is fabricated.** Every SOP,
+business case, training module and opportunity description is produced by deterministic
+templates from facts an employee actually stated in an interview. There is **no live LLM call**
+anywhere — the "AI Interview" is a deterministic conversation-tree engine
+(`src/lib/interview-engine.ts`): same questions, same logic, every time, in five languages
+(English, Hindi, Arabic, Chinese, Malayalam).
 
-**Please run the setup below, then send me (Claude) the exact terminal output of any error** —
-I'll fix it in a follow-up pass. This is a normal handoff step for code written without a build
-loop, not a sign anything is fundamentally wrong.
+## Status
 
-## Tech stack (Phase 1)
+- **Runs locally**: `npm install`, `prisma migrate dev`, seed, and `npm run dev` all succeed;
+  login and role-based sign-in are confirmed working.
+- **`next build` is not yet verified** — the code has run in dev but not through a production
+  build. This is the highest-value next check.
+- **No automated tests** exist anywhere in the codebase.
+- **No `middleware.ts`** — auth is gated in `src/app/(app)/layout.tsx` via `getServerSession`
+  plus per-action `assertCan` checks (defense in depth). Route-level middleware should be added.
+- Hosting: local only (SQLite file DB, local-disk file storage). See "Hosting / moving to
+  Postgres" below and `TECHNICAL_DOCUMENT.md` §8.
 
-- Next.js 14 (App Router) + TypeScript + Tailwind CSS
-- Prisma + **SQLite** for local dev (zero services to install). See "Moving to Postgres" below —
-  you'll need it before Phase 3 (pgvector / RAG).
-- NextAuth (credentials provider), backed by Prisma, with one seeded demo user per role
-- Server Actions for department/project creation and knowledge-source upload
-- Local-disk file storage behind a `KnowledgeStorage` interface (swap to S3 later without
-  touching callers)
+## Tech stack
+
+| Layer | Technology | Version |
+|---|---|---|
+| Framework | Next.js (App Router, Server Actions) | 14.2.15 |
+| Language | TypeScript | 5.5.3 |
+| UI | React / React DOM | 18.3.1 |
+| Styling | Tailwind CSS | 3.4.6 |
+| Auth | NextAuth.js (Credentials provider, JWT sessions) | 4.24.7 |
+| ORM | Prisma | 5.19.1 |
+| Database | SQLite (local file, `prisma/dev.db`); schema is Postgres-ready | — |
+| Password hashing | bcryptjs | 2.4.3 |
+| Validation | Zod | 3.23.8 |
+| File storage | Local disk (`./storage/knowledge-sources`); a Vercel Blob adapter in `src/lib/storage.ts` is auto-selected when `BLOB_READ_WRITE_TOKEN` is set | — |
+
+No paid AI/LLM API is called anywhere.
 
 ## Setup
 
 ```bash
 cd analytix-ai-os
 npm install
-cp .env.example .env        # defaults are fine for local dev
-npx prisma migrate dev --name init
-npm run db:seed
+cp .env.example .env
+```
+
+Then edit `.env` for local dev (the committed `.env.example` is still written for a Postgres
+host — see "Known gaps / next steps"):
+
+```
+DATABASE_URL="file:./dev.db"
+NEXTAUTH_SECRET="<output of: openssl rand -base64 32>"
+NEXTAUTH_URL="http://localhost:3000"
+```
+
+```bash
+npx prisma migrate dev      # applies prisma/migrations/, then runs prisma/seed.ts automatically
 npm run dev
 ```
 
-Open http://localhost:3000 — you'll land on the login screen with a clickable list of demo
-accounts (password for all of them: `Passw0rd!`).
+`npm run db:seed` re-runs the seed on demand later. Open http://localhost:3000 — the login
+screen lists clickable demo accounts (password for all: `Passw0rd!`).
 
 | Role | Email |
 |---|---|
@@ -54,90 +87,118 @@ accounts (password for all of them: `Passw0rd!`).
 | Information Security | infosec@analytix.demo |
 | Legal / Compliance Reviewer | legal@analytix.demo |
 
-A demo department ("Business Setup & Corporate Services") and project ("AI Company Formation
-Case Assistant") are seeded from the spec's section 62 example, so Departments/Projects aren't
-empty on first login.
+The seed (`prisma/seed.ts`) also loads a full demo organization — departments, projects and
+staff drawn from the spec's worked example — so no module is empty on first login.
 
-## What's actually implemented in Phase 1
+## Modules
 
-- **Auth + RBAC** — `src/lib/auth.ts`, `src/lib/rbac.ts`. Nine roles from spec section 3, a small
-  `Permission` set (`setup.manage`, `admin.manage`, `knowledge.upload`, `executive.view`) gating
-  what each role can do. Extend `PERMISSIONS` in `rbac.ts` as later phases add modules — don't
-  scatter role checks across pages.
-- **Departments** (`/departments`) — create/list departments under an implicit default
-  Organization → Country → Division structure (spec section 4). Country/division names are
-  free text and upserted, so multi-country setup already works without extra UI.
-- **Projects** (`/projects`) — the full section-4 setup form (scope, systems, mandatory checks/
-  approvals, templates, baseline volume/manpower, etc.), stored on `AiTransformationProject`.
-- **Knowledge sources** — file upload (PDF/Word/Excel/PNG/JPEG/WebP, 20MB cap) on a project's
-  detail page, stored on local disk, one row per file with a `trustLevel` defaulting to
-  `EMPLOYEE_STATEMENT` — nothing uploaded is ever silently treated as approved policy (spec
-  section 6 / 28). Promotion to a higher trust level is a Phase 3+ workflow.
-- **Administration** — user/role list, recent audit log. User creation UI + real SSO land
-  together in a later phase; edit `prisma/seed.ts` for now.
-- **Audit log** — every department/project create and knowledge upload writes an `AuditLog` row.
+24 modules, registered in `src/lib/nav-config.ts` — the single source of truth the sidebar and
+Help index read from. Each entry's `phase` field records which build phase introduced it. Full
+per-module reference (routes, required permissions, behavior) is in `TECHNICAL_DOCUMENT.md` §7.
+
+- **Phase 1 — Foundation**: Executive Overview, Departments, Projects, Administration
+  (includes a user-creation UI), Help.
+- **Phase 2 — AI Interviews**: multilingual deterministic interview engine, chat UI,
+  shareable no-login invite links, multiple interviews per process with conflict detection and
+  reviewer reconciliation.
+- **Phase 3 — Process Intelligence**: Process Discovery, Process Digital Twin, Process Maps,
+  Bottlenecks, SOP Library (deterministic SOP generator), Knowledge Base.
+- **Phase 4 — AI opportunities**: AI Opportunities (rule-derived LOW/MEDIUM/HIGH impact and
+  effort bands), AI Projects (deterministic business-case generator).
+- **Phase 5 — AI delivery**: Agent Library, ROI / Business Cases (transparent formula with
+  documented assumptions).
+- **Phase 6 — Governance**: Governance (6 fixed, strictly sequential sign-off stages),
+  Approvals, Security (renders the RBAC matrix directly).
+- **Phase 7 — Enterprise**: Transformation Control Tower, Training, Continuous Improvement,
+  Impact Measurement (30/60/90-day reviewer-entered checkpoints), Integrations (config
+  registry only — no live sync).
+
+## Auth + RBAC
+
+`src/lib/auth.ts` and `src/lib/rbac.ts`. Nine roles (`src/lib/enums.ts` → `Role`); eight
+coarse permissions in one matrix (`PERMISSIONS` in `rbac.ts`), checked with `can()` /
+`assertCan()` wherever a page or action gates access:
+
+`setup.manage`, `admin.manage`, `knowledge.upload`, `executive.view`, `interview.conduct`,
+`interview.review`, `governance.review`, `security.view`.
+
+`PERMISSIONS` is exported so the Security module renders the live access matrix rather than
+re-deriving it. Extend this matrix as new modules land — don't scatter role checks across
+pages.
 
 ## Data model
 
-See `prisma/schema.prisma`. Active Phase 1 models are at the top; everything below the
-`PHASE 2+ ROADMAP` divider is commented-out documentation of the target schema from spec
-section 50 (Process/Interview/SOP/AiOpportunity/Approval/metrics entities) — later phases should
-extend this file rather than starting a parallel schema. Fact-status tracking (spec section 7)
-and the knowledge-precedence hierarchy (section 6) are modeled as enums already
-(`SourceTrustLevel`) so Phase 2's interview engine has somewhere to land.
+`prisma/schema.prisma` — **25 active models spanning all 7 phases**, grouped by the phase that
+introduced them (see `TECHNICAL_DOCUMENT.md` §4). `cuid()` primary keys throughout; cascade
+deletes are deliberate so removing a `Process` cleanly removes everything downstream of it.
 
-## Moving to Postgres
+The commented block below the **FUTURE SCHEMA** divider at the end of the file is *not* built —
+it documents fuller spec-model shapes (process-step normalization, SOP/knowledge versioning,
+formal `Risk` / `Approval` entities, separate metric tables) so later work extends this schema
+toward them rather than starting a parallel one.
 
-SQLite was chosen for Phase 1 purely so this runs with zero installed services. Before Phase 3
-(which needs `pgvector` for knowledge-base semantic search), switch the datasource:
+SQLite has no native `enum` type, so fixed-vocabulary fields (`role`, `status`, `trustLevel`,
+…) are `String` columns with const-object stand-ins in `src/lib/enums.ts`. The
+knowledge-precedence hierarchy (spec section 6) and fact-status vocabulary (section 7) live
+there as `SourceTrustLevel`.
 
-```prisma
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-```
+## Hosting / moving to Postgres
 
-...set `DATABASE_URL` to a real Postgres connection string, and re-run
-`npx prisma migrate dev`. No application code depends on SQLite specifically.
+The app runs locally only. Per `TECHNICAL_DOCUMENT.md` §8, hosting it needs three code changes
+(all straightforward) plus accounts you provide (a domain, a GitHub repo, Vercel, a managed
+Postgres provider, Vercel Blob):
+
+1. In `prisma/schema.prisma`, change `provider` to `"postgresql"`, point `DATABASE_URL` at a
+   real connection string, delete the SQLite-dialect migration(s) in `prisma/migrations/`, run
+   `npx prisma migrate dev --name init` to regenerate them, then `npx prisma migrate deploy`
+   against production.
+2. File storage already has a `VercelBlobKnowledgeStorage` adapter in `src/lib/storage.ts`
+   that activates when `BLOB_READ_WRITE_TOKEN` is set — enable Blob on the Vercel project.
+3. Set a real `NEXTAUTH_SECRET` and point `NEXTAUTH_URL` at the real domain.
+
+No application code depends on SQLite specifically.
 
 ## Design reference: the Phase 0 interview prototype
 
 Before this repository, a standalone HTML prototype ("Analytix Virtual AI Process Consultant" /
-"Alex") was built to demo the adaptive-interview concept: one question at a time, keyword-driven
-follow-ups, AI Observation cards requiring explicit Yes/Partly/No confirmation before anything
-becomes an official fact, and a generated SOP/bottleneck/AI-opportunity report. That prototype's
-question-branching logic (section 7-9 of the product spec) is the reference design for Phase 2's
-real `Interview` / `InterviewAnswer` / `InterviewFact` implementation here — the difference is
-that Phase 2 persists structured state in Postgres (per spec section 50's explicit rule: *"Do
-NOT keep the interview state only in the prompt"*) instead of in browser JavaScript, and calls a
-real LLM through a provider-abstraction layer instead of a rule-based keyword matcher.
+"Alex") demoed the adaptive-interview concept: one question at a time, keyword-driven
+follow-ups, AI Observation cards requiring an explicit Yes/Partly/No confirmation before
+anything becomes an official fact, and a generated SOP/bottleneck/AI-opportunity report. That
+branching logic (spec sections 7–9) is the design the Phase 2 engine here implements. The
+differences: Phase 2 persists structured state in the database (`Interview.stateJson` plus
+normalized transcript / step / observation tables) instead of browser JavaScript, and the
+engine deliberately stayed a **deterministic rule-based conversation tree** rather than moving
+to an LLM — per the "nothing fabricated" principle (`TECHNICAL_DOCUMENT.md` §1, §9).
 
-## Build-phase roadmap
+## Build phases
 
-Matches spec section 59. `src/lib/nav-config.ts` is the single source of truth the sidebar reads
-from — update the `phase` / `implemented` fields there as each phase ships.
+All seven phases are built. `src/lib/nav-config.ts` `phase` fields map each module to the
+phase that introduced it.
 
-1. **Foundation** (this repo) — auth, DB, RBAC, departments, projects, knowledge storage.
-2. **AI Interview** — chat + voice, dynamic questioning, structured answer extraction, scope
-   validation, fact statuses, completeness engine.
-3. **Process Intelligence** — Process Digital Twin, SOP generator, Knowledge Base, Bottlenecks,
-   visual process map.
-4. **Multi-Employee Validation** — employee comparison, SOP-vs-reality gap analysis,
-   contradiction resolution.
-5. **AI Transformation** — AI opportunities, AI project generator, agent matching, ROI
-   calculator, process simulation.
-6. **Governance** — approval workflow, security review, pilot/production gates.
+1. **Foundation** — auth, DB, RBAC, departments, projects, knowledge storage.
+2. **AI Interview** — multilingual deterministic questioning, structured answer extraction,
+   observation confirmation, completeness scoring, invite links, multi-interview reconciliation.
+3. **Process Intelligence** — Digital Twin, SOP generator, Knowledge Base, Bottlenecks,
+   visual process maps.
+4. **Multi-Employee Validation** — join-existing-process interviews, `compareProcessFacts()`
+   conflict detection, `NEEDS_REVIEW` gating, side-by-side reconciliation.
+5. **AI Transformation** — AI opportunities, AI project generator, Agent Library, ROI
+   calculator.
+6. **Governance** — 6-stage sequential approval chain, Approvals queue, Security posture view.
 7. **Enterprise** — Control Tower, training, continuous improvement, impact measurement,
-   integrations (Odoo, Analytix360, email, WhatsApp).
+   integrations registry.
 
 ## Known gaps / next steps
 
-- No middleware-level route protection yet — auth is checked per-layout via
-  `getServerSession`, which is correct but means an unauthenticated request briefly reaches
-  the server component before redirecting. Fine for Phase 1; add `middleware.ts` if this
-  matters before Phase 2.
-- No automated tests yet. Given this code hasn't been build-verified, the highest-value first
-  step after `npm install` is simply confirming `npm run build` succeeds.
-- User creation is seed-script-only; there's no UI to add a user yet.
-- `src/app/api/upload` is an empty leftover directory (Next.js ignores it) — safe to delete.
+- **`next build` not yet verified** — run it and fix whatever surfaces before building more.
+- **No automated tests** anywhere in the codebase.
+- **No `middleware.ts`** — auth is per-layout (`src/app/(app)/layout.tsx`) plus per-action
+  `assertCan`. Correct, but a request briefly reaches a server component before redirecting;
+  add route-level middleware.
+- **`.env.example` is still Postgres-shaped** (`DATABASE_URL="postgresql://…"`, placeholder
+  `NEXTAUTH_SECRET`) — the "Setup" section above works around it. Rewrite it for the SQLite
+  default.
+- **`src/app/api/upload`** is an empty leftover directory (Next.js ignores it) — safe to delete.
+- **`src/components/layout/ComingSoon.tsx`** is now dead code — every `nav-config.ts` module is
+  `implemented: true`. Remove it.
+- **`package.json` `version` is `0.1.0-phase1`** — a stale label; bump it.
