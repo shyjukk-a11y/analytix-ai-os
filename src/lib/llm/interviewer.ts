@@ -173,8 +173,18 @@ function pushUnique(list: string[], values: string[] | undefined) {
 }
 
 function historyForModel(state: InterviewState): ChatMessage[] {
-  const hist = state.llmHistory ?? [];
-  return hist.slice(-30).map((m) => ({ role: m.role, content: m.content }));
+  const hist = (state.llmHistory ?? [])
+    .slice(-30)
+    .filter((m) => typeof m.content === 'string' && m.content.trim().length > 0)
+    .map((m) => ({ role: m.role, content: m.content } as ChatMessage));
+
+  // The conversation opens with the AI's greeting, so history[0] is an `assistant` turn.
+  // Several providers (Gemini via OpenRouter among them) require the first non-system message
+  // to be `user` and can otherwise misread the turn order — read the employee's real answer as
+  // blank. Drop any leading assistant turns; the system prompt already carries the full context.
+  let start = 0;
+  while (start < hist.length && hist[start].role === 'assistant') start += 1;
+  return hist.slice(start);
 }
 
 /**
